@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AAC Membership Merge Tool</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.1/papaparse.min.js"
+  integrity="sha512-EbdJQSugx0nVWrtyK3JdQQ/03mS3Q1UiAhRtErbwl1YL/+e2hZdlIcSURxxh7WXHTzn83sjlh2rysACoJGfb6g=="
+  crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<style>
+  :root{
+    --ink:#1c2b2e;
+    --paper:#f7f5f0;
+    --panel:#ffffff;
+    --line:#d9d4c8;
+    --accent:#2f6f5e;
+    --accent-dark:#204d41;
+    --warn:#a85b2b;
+    --warn-bg:#fbeee1;
+    --err:#b8402f;
+    --err-bg:#fbe6e2;
+    --ok:#2f6f5e;
+    --ok-bg:#e7f0ec;
+    --muted:#6b7370;
+    --radius:6px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:"Segoe UI", Arial, Helvetica, sans-serif;
+    line-height:1.5;
+    padding:32px 16px 80px;
+  }
+  .wrap{max-width:880px;margin:0 auto;}
+  header.app-header{margin-bottom:28px;}
+  header.app-header h1{
+    font-size:1.5rem;
+    margin:0 0 4px;
+    letter-spacing:.2px;
+  }
+  header.app-header p{margin:0;color:var(--muted);font-size:.95rem;}
+
+  .steps{
+    display:flex;
+    gap:6px;
+    margin:24px 0 32px;
+    flex-wrap:wrap;
+  }
+  .step-chip{
+    flex:1 1 auto;
+    min-width:90px;
+    text-align:center;
+    padding:8px 6px;
+    border-radius:999px;
+    background:var(--panel);
+    border:1px solid var(--line);
+    font-size:.78rem;
+    color:var(--muted);
+  }
+  .step-chip.active{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600;}
+  .step-chip.done{background:var(--ok-bg);border-color:var(--ok);color:var(--accent-dark);}
+
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:24px;
+    margin-bottom:20px;
+  }
+  .panel h2{margin-top:0;font-size:1.05rem;}
+  .panel h3{font-size:.92rem;margin:18px 0 8px;}
+
+  .upload-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  @media (max-width:640px){.upload-grid{grid-template-columns:1fr;}}
+  .dropzone{
+    border:2px dashed var(--line);
+    border-radius:var(--radius);
+    padding:22px 16px;
+    text-align:center;
+    background:#fbfaf7;
+    cursor:pointer;
+    transition:border-color .15s ease, background .15s ease;
+  }
+  .dropzone:hover, .dropzone.drag{border-color:var(--accent);background:#f1f6f3;}
+  .dropzone input{display:none;}
+  .dropzone .label{font-weight:600;font-size:.92rem;margin-bottom:4px;}
+  .dropzone .hint{color:var(--muted);font-size:.82rem;}
+  .dropzone .filename{margin-top:10px;font-size:.85rem;color:var(--accent-dark);word-break:break-all;}
+  .dropzone .rowcount{font-size:.78rem;color:var(--muted);margin-top:2px;}
+
+  button{
+    font-family:inherit;
+    font-size:.92rem;
+    padding:10px 20px;
+    border-radius:var(--radius);
+    border:1px solid var(--accent);
+    background:var(--accent);
+    color:#fff;
+    cursor:pointer;
+    font-weight:600;
+  }
+  button:disabled{background:#c9c4b8;border-color:#c9c4b8;color:#8b877c;cursor:not-allowed;}
+  button.secondary{background:transparent;color:var(--accent-dark);}
+  button.secondary:disabled{color:#a8a49a;border-color:#d9d4c8;}
+
+  .actions{display:flex;justify-content:flex-end;gap:10px;margin-top:20px;}
+  .actions.between{justify-content:space-between;}
+
+  .check-row{
+    display:flex;
+    align-items:flex-start;
+    gap:10px;
+    padding:9px 0;
+    border-bottom:1px solid #eee6da;
+    font-size:.9rem;
+  }
+  .check-row:last-child{border-bottom:none;}
+  .badge{
+    flex:0 0 auto;
+    width:20px;height:20px;border-radius:50%;
+    display:flex;align-items:center;justify-content:center;
+    font-size:.7rem;font-weight:700;color:#fff;
+  }
+  .badge.ok{background:var(--ok);}
+  .badge.warn{background:var(--warn);}
+  .badge.err{background:var(--err);}
+  .check-text b{display:block;}
+  .check-text span{color:var(--muted);font-size:.85rem;}
+
+  .progress-line{margin:14px 0;}
+  .progress-line .meta{display:flex;justify-content:space-between;font-size:.82rem;color:var(--muted);margin-bottom:4px;}
+  .bar-track{background:#eee6da;border-radius:999px;height:8px;overflow:hidden;}
+  .bar-fill{background:var(--accent);height:100%;width:0%;transition:width .2s ease;}
+
+  .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:16px 0;}
+  .stat-card{background:#fbfaf7;border:1px solid var(--line);border-radius:var(--radius);padding:14px;}
+  .stat-card .num{font-size:1.5rem;font-weight:700;color:var(--accent-dark);}
+  .stat-card .lab{font-size:.78rem;color:var(--muted);}
+
+  .callout{
+    border-radius:var(--radius);
+    padding:12px 16px;
+    font-size:.87rem;
+    margin:10px 0;
+  }
+  .callout.warn{background:var(--warn-bg);color:#7a3d18;border:1px solid #ecd2b8;}
+  .callout.info{background:#eef2f6;color:#2a4257;border:1px solid #d7e0e8;}
+
+  .download-row{display:flex;gap:12px;flex-wrap:wrap;margin-top:16px;}
+  .download-row button.ghost{
+    background:transparent;border:1px solid var(--line);color:var(--ink);font-weight:500;
+  }
+
+  footer.note{margin-top:28px;font-size:.78rem;color:var(--muted);text-align:center;}
+  a{color:var(--accent-dark);}
+  .hidden{display:none !important;}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="app-header">
+    <h1>AAC Membership Merge Tool</h1>
+    <p>Merges the Membership and Member Details exports, drops terminated members, calculates age,
+       and fills in address details via OneMap. Runs entirely in this browser — nothing is uploaded
+       to any server.</p>
+  </header>
+
+  <div class="steps">
+    <div class="step-chip" data-step="1">1. Upload</div>
+    <div class="step-chip" data-step="2">2. Validate</div>
+    <div class="step-chip" data-step="3">3. Merge &amp; Enrich</div>
+    <div class="step-chip" data-step="4">4. Summary</div>
+    <div class="step-chip" data-step="5">5. Download</div>
+  </div>
+
+  <!-- STEP 1: UPLOAD -->
+  <section class="panel" id="panel-upload">
+    <h2>Step 1 — Upload the two CSV exports</h2>
+    <div class="upload-grid">
+      <label class="dropzone" id="dz-membership">
+        <input type="file" accept=".csv" id="file-membership">
+        <div class="label">Membership CSV</div>
+        <div class="hint">DataListing-AACMembership.csv</div>
+        <div class="filename" id="fn-membership"></div>
+        <div class="rowcount" id="rc-membership"></div>
+      </label>
+      <label class="dropzone" id="dz-details">
+        <input type="file" accept=".csv" id="file-details">
+        <div class="label">Member Details CSV</div>
+        <div class="hint">DataListing-AACMemberDetails.csv</div>
+        <div class="filename" id="fn-details"></div>
+        <div class="rowcount" id="rc-details"></div>
+      </label>
+    </div>
+    <div class="actions">
+      <button id="btn-to-validate" disabled>Continue to validation</button>
+    </div>
+  </section>
+
+  <!-- STEP 2: VALIDATE -->
+  <section class="panel hidden" id="panel-validate">
+    <h2>Step 2 — Validation</h2>
+    <div id="validation-list"></div>
+    <div class="actions between">
+      <button class="secondary" id="btn-back-upload">Back</button>
+      <button id="btn-to-merge" disabled>Continue to merge</button>
+    </div>
+  </section>
+
+  <!-- STEP 3: MERGE -->
+  <section class="panel hidden" id="panel-merge">
+    <h2>Step 3 — Merging &amp; enriching</h2>
+    <div class="progress-line">
+      <div class="meta"><span>Merging records</span><span id="merge-progress-text">0 / 0</span></div>
+      <div class="bar-track"><div class="bar-fill" id="merge-progress-bar"></div></div>
+    </div>
+    <div class="progress-line">
+      <div class="meta"><span>Looking up addresses (unique postal codes)</span><span id="lookup-progress-text">0 / 0</span></div>
+      <div class="bar-track"><div class="bar-fill" id="lookup-progress-bar"></div></div>
+    </div>
+    <div class="callout info" id="lookup-detail" style="display:none;"></div>
+  </section>
+
+  <!-- STEP 4: SUMMARY -->
+  <section class="panel hidden" id="panel-summary">
+    <h2>Step 4 — Summary</h2>
+    <div class="stat-grid" id="stat-grid"></div>
+    <div id="advisory-area"></div>
+    <div class="actions">
+      <button id="btn-to-download">Continue to download</button>
+    </div>
+  </section>
+
+  <!-- STEP 5: DOWNLOAD -->
+  <section class="panel hidden" id="panel-download">
+    <h2>Step 5 — Download your files</h2>
+    <p>Your merged roster is ready. The failed-lookup file only appears if at least one address
+       could not be resolved.</p>
+    <div class="download-row">
+      <button id="btn-download-main">Download Final_Merged_Members.csv</button>
+      <button class="ghost" id="btn-download-failed" style="display:none;">Download Failed_Address_Lookup.csv</button>
+    </div>
+    <div class="actions">
+      <button class="secondary" id="btn-start-over">Start over</button>
+    </div>
+  </section>
+
+  <footer class="note">
+    Runs fully client-side. Files are parsed and merged in your browser and are never sent
+    anywhere except OneMap's public address-search API (postal code only, no member data).
+  </footer>
+</div>
+
+<script>
+(function(){
+
+  /* ---------------------------------------------------------------------
+   * CONFIG: field mapping, per the AAC field-mapping workbook
+   * ------------------------------------------------------------------- */
+
+  // Output columns, in final order. Each has a "resolver" describing how it's built.
+  const OUTPUT_COLUMNS = [
+    "MembershipStatus","JoinedDate","NRIC","FullName","ToAddressAs","DOB","Age","Gender",
+    "MaritalStatus","Citizenship","Race","Religion","HomePhone","MobilePhone",
+    "ResidesWithinServiceBoundary","PersonAddressPostalCode","PersonAddressBlockNo",
+    "PersonAddressStoreyUnit","PersonAddressStreetName","PersonAddressBuildingName",
+    "PersonAddressCountry","Language","CurrentEmploymentStatus","Hobbies","Remarks"
+  ];
+
+  // Fields resolved by the standard "MemberDetails overwrites if not blank" rule.
+  // Format: outputName -> { m: MembershipColumnName, d: MemberDetailsColumnName }
+  const OVERWRITE_FIELDS = {
+    MembershipStatus:              { m: "MembershipStatus",              d: "CurrentMembershipStatus" },
+    NRIC:                          { m: "NRIC",                          d: "RegistrationDocumentNumber" },
+    FullName:                      { m: "FullName",                      d: "FullNameNative" },
+    ToAddressAs:                   { m: "ToAddressAs",                   d: "ToAddressAs" },
+    DOB:                           { m: "DOB",                           d: "DateOfBirth" },
+    Gender:                        { m: "Gender",                        d: "Gender" },
+    MaritalStatus:                 { m: "MaritalStatus",                 d: "MaritalStatus" },
+    Citizenship:                   { m: "Citizenship",                   d: "Citizenship" },
+    Race:                          { m: "Race",                          d: "Race" },
+    Religion:                      { m: "Religion",                      d: "Religion" },
+    HomePhone:                     { m: "HomePhone",                     d: "Phone" },
+    ResidesWithinServiceBoundary:  { m: "ResidesWithinServiceBoundary",  d: "ResidesWithinServiceBoundaryStr" },
+    PersonAddressPostalCode:       { m: "PersonAddressPostalCode",       d: "NricAddress_PostalCode" },
+    PersonAddressBlockNo:          { m: "PersonAddressBlockNo",          d: "NricAddress_BlockNo" },
+    PersonAddressStoreyUnit:       { m: "PersonAddressStoreyUnit",       d: "NricAddress_UnitNo" },
+    Language:                      { m: "Language",                      d: "SpokenLanguage" },
+    Hobbies:                       { m: "Hobbies",                       d: "Hobbies" }
+  };
+
+  // Fields that exist only on the Membership side (copied straight through).
+  const MEMBERSHIP_ONLY_FIELDS = {
+    MobilePhone: "MobilePhone",
+    CurrentEmploymentStatus: "CurrentEmploymentStatus"
+  };
+
+  // Fields that exist only on the MemberDetails side (copied straight through).
+  const DETAILS_ONLY_FIELDS = {
+    JoinedDate: "JoinedDate",
+    Remarks: "Remarks"
+  };
+
+  // Address fields populated exclusively by OneMap.
+  const ONEMAP_FIELDS = ["PersonAddressStreetName","PersonAddressBuildingName","PersonAddressCountry"];
+
+  const BLANK_PLACEHOLDERS = new Set(["", "na", "n/a", "null", "-", "nil"]);
+
+  const REQUIRED_MEMBERSHIP_COLS = ["MembershipId", "MembershipStatus", "NRIC"];
+  const REQUIRED_DETAILS_COLS = ["MembershipId", "CurrentMembershipStatus", "RegistrationDocumentNumber"];
+
+  const ONEMAP_SEARCH_URL = "https://www.onemap.gov.sg/api/common/elastic/search";
+  const ONEMAP_CONCURRENCY = 6;
+  // OneMap documents a 250 calls/minute cap on this endpoint. Pace dispatch to stay safely
+  // under that (200/min => a new call starts at most every 300ms), regardless of how many
+  // requests are still in flight — this protects large runs (thousands of unique postal codes)
+  // from getting throttled/429'd partway through.
+  const ONEMAP_MAX_CALLS_PER_MINUTE = 200;
+  const ONEMAP_MIN_DISPATCH_INTERVAL_MS = Math.ceil(60000 / ONEMAP_MAX_CALLS_PER_MINUTE);
+  const ONEMAP_MAX_RETRIES = 2;
+
+  /* ---------------------------------------------------------------------
+   * STATE
+   * ------------------------------------------------------------------- */
+
+  const state = {
+    membershipRows: null,
+    detailsRows: null,
+    membershipFilename: "",
+    detailsFilename: "",
+    diagnostics: {
+      matchedById: 0,
+      matchedByNric: 0,
+      unmatched: 0,
+      updated: 0,
+      terminatedRemoved: 0,
+      dobMissingOrInvalid: 0,
+      duplicateMembershipIds: [],
+      uniquePostalCodes: 0,
+      cacheHitsSaved: 0,
+      oneMapCallsMade: 0,
+      lookupFailuresByReason: {}
+    },
+    outputRows: [],
+    failedLookupRows: [],
+    finalCsvBlob: null,
+    failedCsvBlob: null
+  };
+
+  /* ---------------------------------------------------------------------
+   * HELPERS
+   * ------------------------------------------------------------------- */
+
+  function isBlank(v){
+    if (v === null || v === undefined) return true;
+    const t = String(v).trim().toLowerCase();
+    return BLANK_PLACEHOLDERS.has(t);
+  }
+
+  function overwrite(oldVal, newVal){
+    return isBlank(newVal) ? (oldVal === undefined || oldVal === null ? "" : oldVal) : newVal;
+  }
+
+  function normId(v){
+    return (v === null || v === undefined) ? "" : String(v).trim().toLowerCase();
+  }
+
+  function normNric(v){
+    return (v === null || v === undefined) ? "" : String(v).trim().toUpperCase().replace(/[\s-]/g, "");
+  }
+
+  function cleanPostal(v){
+    if (v === null || v === undefined) return "";
+    return String(v).replace(/\D/g, "");
+  }
+
+  function isValidSgPostal(v){
+    const digitsOnly = String(v || "").trim();
+    return /^[0-9]{6}$/.test(digitsOnly);
+  }
+
+  // Tolerant date parser: DD/MM/YYYY, YYYY-MM-DD, MM/DD/YYYY (fallback), Excel serial numbers.
+  function parseFlexibleDate(raw){
+    if (isBlank(raw)) return null;
+    const s = String(raw).trim();
+
+    // Excel serial date (e.g. 37000) re-exported as a plain number.
+    if (/^\d{4,6}$/.test(s) && Number(s) > 20000 && Number(s) < 60000) {
+      const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+      const d = new Date(excelEpoch.getTime() + Number(s) * 86400000);
+      if (!isNaN(d.getTime())) return d;
+    }
+
+    // YYYY-MM-DD or YYYY/MM/DD
+    let m = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+    if (m) {
+      const d = new Date(Date.UTC(+m[1], +m[2]-1, +m[3]));
+      if (!isNaN(d.getTime())) return d;
+    }
+
+    // DD/MM/YYYY (or DD-MM-YYYY)
+    m = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})$/);
+    if (m) {
+      const day = +m[1], month = +m[2], year = +m[3];
+      if (month <= 12) {
+        const d = new Date(Date.UTC(year, month-1, day));
+        if (!isNaN(d.getTime()) && d.getUTCMonth() === month-1) return d;
+      }
+    }
+
+    // Last resort: native Date parsing.
+    const fallback = new Date(s);
+    if (!isNaN(fallback.getTime())) return fallback;
+
+    return null;
+  }
+
+  function computeAge(dob){
+    if (!dob) return "";
+    const currentYear = new Date().getFullYear();
+    const birthYear = dob.getUTCFullYear();
+    const age = currentYear - birthYear;
+    return (age >= 0 && age < 130) ? String(age) : "";
+  }
+
+  function isTerminated(statusValue){
+    return String(statusValue || "").trim().toLowerCase() === "terminated";
+  }
+
+  function downloadBlob(blob, filename){
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
+
+  function csvBlobFromRows(rows){
+    const csv = Papa.unparse(rows);
+    return new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  }
+
+  /* ---------------------------------------------------------------------
+   * STEP NAVIGATION
+   * ------------------------------------------------------------------- */
+
+  const panels = ["upload","validate","merge","summary","download"];
+  function goToStep(stepIndex){
+    panels.forEach((name, i) => {
+      document.getElementById("panel-" + name).classList.toggle("hidden", i !== stepIndex);
+    });
+    document.querySelectorAll(".step-chip").forEach((chip, i) => {
+      chip.classList.toggle("active", i === stepIndex);
+      chip.classList.toggle("done", i < stepIndex);
+    });
+  }
+  goToStep(0);
+
+  /* ---------------------------------------------------------------------
+   * STEP 1: UPLOAD
+   * ------------------------------------------------------------------- */
+
+  function wireDropzone(dzId, fileInputId, fnId, rcId, onParsed){
+    const dz = document.getElementById(dzId);
+    const input = document.getElementById(fileInputId);
+    dz.addEventListener("dragover", e => { e.preventDefault(); dz.classList.add("drag"); });
+    dz.addEventListener("dragleave", () => dz.classList.remove("drag"));
+    dz.addEventListener("drop", e => {
+      e.preventDefault();
+      dz.classList.remove("drag");
+      if (e.dataTransfer.files.length) {
+        input.files = e.dataTransfer.files;
+        handleFile(input.files[0]);
+      }
+    });
+    input.addEventListener("change", () => {
+      if (input.files.length) handleFile(input.files[0]);
+    });
+
+    function handleFile(file){
+      document.getElementById(fnId).textContent = file.name;
+      document.getElementById(rcId).textContent = "Parsing…";
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: function(results){
+          document.getElementById(rcId).textContent = results.data.length.toLocaleString() + " rows";
+          onParsed(results.data, results.meta.fields || [], file.name);
+        },
+        error: function(err){
+          document.getElementById(rcId).textContent = "Could not parse this file.";
+          console.error(err);
+        }
+      });
+    }
+  }
+
+  wireDropzone("dz-membership","file-membership","fn-membership","rc-membership",
+    function(rows, fields, filename){
+      state.membershipRows = rows;
+      state.membershipFields = fields;
+      state.membershipFilename = filename;
+      checkReadyForValidation();
+    });
+
+  wireDropzone("dz-details","file-details","fn-details","rc-details",
+    function(rows, fields, filename){
+      state.detailsRows = rows;
+      state.detailsFields = fields;
+      state.detailsFilename = filename;
+      checkReadyForValidation();
+    });
+
+  function checkReadyForValidation(){
+    document.getElementById("btn-to-validate").disabled =
+      !(state.membershipRows && state.detailsRows);
+  }
+
+  document.getElementById("btn-to-validate").addEventListener("click", runValidation);
+
+  /* ---------------------------------------------------------------------
+   * STEP 2: VALIDATION
+   * ------------------------------------------------------------------- */
+
+  function addCheck(list, level, title, detail){
+    const row = document.createElement("div");
+    row.className = "check-row";
+    const badgeChar = level === "ok" ? "✓" : (level === "warn" ? "!" : "✕");
+    row.innerHTML =
+      '<div class="badge ' + level + '">' + badgeChar + '</div>' +
+      '<div class="check-text"><b>' + title + '</b><span>' + detail + '</span></div>';
+    list.appendChild(row);
+  }
+
+  function runValidation(){
+    const list = document.getElementById("validation-list");
+    list.innerHTML = "";
+    let hardStop = false;
+
+    // File-level: required columns present
+    const missingMembershipCols = REQUIRED_MEMBERSHIP_COLS.filter(c => !state.membershipFields.includes(c));
+    const missingDetailsCols = REQUIRED_DETAILS_COLS.filter(c => !state.detailsFields.includes(c));
+
+    if (missingMembershipCols.length){
+      addCheck(list, "err", "Membership CSV is missing required columns",
+        missingMembershipCols.join(", ") + " — check this is the correct export.");
+      hardStop = true;
+    } else {
+      addCheck(list, "ok", "Membership CSV has all required columns", REQUIRED_MEMBERSHIP_COLS.join(", "));
+    }
+
+    if (missingDetailsCols.length){
+      addCheck(list, "err", "Member Details CSV is missing required columns",
+        missingDetailsCols.join(", ") + " — check this is the correct export.");
+      hardStop = true;
+    } else {
+      addCheck(list, "ok", "Member Details CSV has all required columns", REQUIRED_DETAILS_COLS.join(", "));
+    }
+
+    // Non-empty
+    if (!hardStop){
+      addCheck(list, "ok", "Both files parsed successfully",
+        state.membershipRows.length.toLocaleString() + " membership rows, " +
+        state.detailsRows.length.toLocaleString() + " member-details rows.");
+
+      // Row count sanity
+      if (state.detailsRows.length < state.membershipRows.length * 0.10){
+        addCheck(list, "warn", "Member Details file looks unusually small",
+          "It has under 10% of the Membership file's row count. This may be a legitimate partial " +
+          "export, but worth a quick check that the right file was selected.");
+      }
+
+      // Duplicate MembershipId checks
+      const dupCheck = (rows, label) => {
+        const seen = new Set(), dups = new Set();
+        rows.forEach(r => {
+          const id = normId(r.MembershipId);
+          if (!id) return;
+          if (seen.has(id)) dups.add(id); else seen.add(id);
+        });
+        return dups;
+      };
+      const mDups = dupCheck(state.membershipRows, "Membership");
+      const dDups = dupCheck(state.detailsRows, "Member Details");
+      if (mDups.size){
+        addCheck(list, "warn", "Duplicate MembershipId values in Membership CSV",
+          mDups.size + " duplicate ID(s) found. The first occurrence of each will be used; " +
+          "later duplicates are logged, not merged together.");
+      } else {
+        addCheck(list, "ok", "No duplicate MembershipId values in Membership CSV", "");
+      }
+      if (dDups.size){
+        addCheck(list, "warn", "Duplicate MembershipId values in Member Details CSV",
+          dDups.size + " duplicate ID(s) found. The first occurrence of each will be used.");
+      } else {
+        addCheck(list, "ok", "No duplicate MembershipId values in Member Details CSV", "");
+      }
+      state.diagnostics.duplicateMembershipIds = [...mDups, ...dDups];
+    }
+
+    document.getElementById("btn-to-merge").disabled = hardStop;
+    goToStep(1);
+  }
+
+  document.getElementById("btn-back-upload").addEventListener("click", () => goToStep(0));
+  document.getElementById("btn-to-merge").addEventListener("click", runMergePipeline);
+
+  /* ---------------------------------------------------------------------
+   * STEP 3: MERGE + ENRICH
+   * ------------------------------------------------------------------- */
+
+  async function runMergePipeline(){
+    goToStep(2);
+    resetDiagnostics();
+
+    // 1. Index MemberDetails by MembershipId and by normalised NRIC (first occurrence wins).
+    const byId = new Map();
+    const byNric = new Map();
+    state.detailsRows.forEach(row => {
+      const id = normId(row.MembershipId);
+      if (id && !byId.has(id)) byId.set(id, row);
+      const nric = normNric(row.RegistrationDocumentNumber);
+      if (nric && !byNric.has(nric)) byNric.set(nric, row);
+    });
+
+    // 2. Merge pass over Membership rows.
+    const merged = []; // { output: {...}, postalCode: "" }
+    const total = state.membershipRows.length;
+    const progressText = document.getElementById("merge-progress-text");
+    const progressBar = document.getElementById("merge-progress-bar");
+
+    // Track first-seen MembershipId within Membership file to honour "first occurrence wins".
+    const seenMembershipIds = new Set();
+
+    for (let i = 0; i < total; i++){
+      const mRow = state.membershipRows[i];
+      const id = normId(mRow.MembershipId);
+
+      if (id && seenMembershipIds.has(id)) {
+        // duplicate row within Membership file itself — skip, already logged in validation
+        continue;
+      }
+      if (id) seenMembershipIds.add(id);
+
+      let dRow = null;
+      if (id && byId.has(id)) {
+        dRow = byId.get(id);
+        state.diagnostics.matchedById++;
+      } else {
+        const nric = normNric(mRow.NRIC);
+        if (nric && byNric.has(nric)) {
+          dRow = byNric.get(nric);
+          state.diagnostics.matchedByNric++;
+        } else {
+          state.diagnostics.unmatched++;
+        }
+      }
+
+      const output = {};
+      let wasUpdated = false;
+
+      // Overwrite-rule fields
+      for (const outName in OVERWRITE_FIELDS){
+        const spec = OVERWRITE_FIELDS[outName];
+        const mVal = mRow[spec.m];
+        const dVal = dRow ? dRow[spec.d] : "";
+        const resolved = overwrite(mVal, dVal);
+        if (dRow && !isBlank(dVal) && resolved !== (mVal || "")) wasUpdated = true;
+        output[outName] = resolved || "";
+      }
+
+      // Membership-only fields
+      for (const outName in MEMBERSHIP_ONLY_FIELDS){
+        output[outName] = mRow[MEMBERSHIP_ONLY_FIELDS[outName]] || "";
+      }
+
+      // Details-only fields
+      for (const outName in DETAILS_ONLY_FIELDS){
+        output[outName] = dRow ? (dRow[DETAILS_ONLY_FIELDS[outName]] || "") : "";
+      }
+
+      // Age (from resolved DOB)
+      const dob = parseFlexibleDate(output.DOB);
+      if (!dob) state.diagnostics.dobMissingOrInvalid++;
+      output.Age = computeAge(dob);
+
+      // Address fields start blank; OneMap fills them in the next phase.
+      ONEMAP_FIELDS.forEach(f => output[f] = "");
+
+      if (wasUpdated) state.diagnostics.updated++;
+
+      // Terminated filter (applied to the resolved MembershipStatus)
+      if (isTerminated(output.MembershipStatus)) {
+        state.diagnostics.terminatedRemoved++;
+        continue;
+      }
+
+      merged.push({
+        output,
+        membershipId: mRow.MembershipId || "",
+        nric: output.NRIC || "",
+        postalCode: output.PersonAddressPostalCode || ""
+      });
+
+      if (i % 250 === 0 || i === total - 1) {
+        progressText.textContent = (i+1).toLocaleString() + " / " + total.toLocaleString();
+        progressBar.style.width = Math.round(((i+1)/total)*100) + "%";
+        await nextFrame();
+      }
+    }
+    progressText.textContent = total.toLocaleString() + " / " + total.toLocaleString();
+    progressBar.style.width = "100%";
+
+    // 3. Collect unique postal codes needing lookup.
+    const postalMap = new Map(); // postalCode -> array of merged-row indices
+    merged.forEach((row, idx) => {
+      const clean = cleanPostal(row.postalCode);
+      if (!postalMap.has(clean)) postalMap.set(clean, []);
+      postalMap.get(clean).push(idx);
+    });
+
+    const uniqueCodes = [...postalMap.keys()];
+    state.diagnostics.uniquePostalCodes = uniqueCodes.filter(c => isValidSgPostal(c)).length;
+
+    const lookupProgressText = document.getElementById("lookup-progress-text");
+    const lookupProgressBar = document.getElementById("lookup-progress-bar");
+    const lookupDetail = document.getElementById("lookup-detail");
+    lookupDetail.style.display = "block";
+    lookupDetail.textContent = "Preparing address lookups…";
+
+    const cache = new Map(); // cleanPostalCode -> { street, building } | { failed: reason }
+    let done = 0;
+    const lookupTotal = uniqueCodes.length;
+
+    // Shared pacing gate: ensures actual network dispatches never exceed
+    // ONEMAP_MAX_CALLS_PER_MINUTE, no matter how many workers are running concurrently.
+    let nextDispatchAt = 0;
+    async function waitForDispatchSlot(){
+      const now = Date.now();
+      const runAt = Math.max(now, nextDispatchAt);
+      nextDispatchAt = runAt + ONEMAP_MIN_DISPATCH_INTERVAL_MS;
+      const wait = runAt - now;
+      if (wait > 0) await new Promise(res => setTimeout(res, wait));
+    }
+
+    async function resolveOne(code){
+      const rowIndices = postalMap.get(code);
+
+      if (!code) {
+        applyResultToRows(rowIndices, null, "Missing Postal Code");
+        return;
+      }
+      if (!isValidSgPostal(code)) {
+        applyResultToRows(rowIndices, null, "Invalid Postal Code");
+        return;
+      }
+
+      if (cache.has(code)) {
+        state.diagnostics.cacheHitsSaved += rowIndices.length - 1 >= 0 ? rowIndices.length : 0;
+        const cached = cache.get(code);
+        if (cached && cached.failed) {
+          applyResultToRows(rowIndices, null, cached.failed);
+        } else {
+          applyResultToRows(rowIndices, cached, null);
+        }
+        return;
+      }
+
+      const url = ONEMAP_SEARCH_URL + "?searchVal=" + encodeURIComponent(code) +
+        "&returnGeom=N&getAddrDetails=Y&pageNum=1";
+
+      for (let attempt = 0; attempt <= ONEMAP_MAX_RETRIES; attempt++) {
+        await waitForDispatchSlot();
+        try {
+          const resp = await fetch(url);
+
+          if (resp.status === 429) {
+            // Rate-limited despite pacing (e.g. another tab/run sharing the quota).
+            // Back off and retry rather than immediately failing the postal code.
+            if (attempt < ONEMAP_MAX_RETRIES) {
+              await new Promise(res => setTimeout(res, 1000 * (attempt + 1)));
+              continue;
+            }
+            cache.set(code, { failed: "Lookup Error" });
+            applyResultToRows(rowIndices, null, "Lookup Error");
+            return;
+          }
+          if (!resp.ok) throw new Error("HTTP " + resp.status);
+
+          const data = await resp.json();
+          const result = (data && data.results && data.results.length) ? data.results[0] : null;
+
+          if (!result) {
+            cache.set(code, { failed: "No OneMap Match" });
+            applyResultToRows(rowIndices, null, "No OneMap Match");
+            return;
+          }
+
+          // OneMap returns the literal string "NIL" for fields with no value — treat as blank.
+          const isNil = v => !v || String(v).trim().toUpperCase() === "NIL";
+          const street = isNil(result.ROAD_NAME) ? "" : result.ROAD_NAME;
+          const building = isNil(result.BUILDING) ? "" : result.BUILDING;
+          const resolved = { street, building };
+          cache.set(code, resolved);
+          applyResultToRows(rowIndices, resolved, null);
+          return;
+        } catch (e) {
+          if (attempt < ONEMAP_MAX_RETRIES) {
+            await new Promise(res => setTimeout(res, 500 * (attempt + 1)));
+            continue;
+          }
+          cache.set(code, { failed: "Lookup Error" });
+          applyResultToRows(rowIndices, null, "Lookup Error");
+          return;
+        }
+      }
+    }
+
+    function applyResultToRows(rowIndices, resolved, failReason){
+      rowIndices.forEach(idx => {
+        const row = merged[idx];
+        if (resolved) {
+          row.output.PersonAddressStreetName = resolved.street || "";
+          row.output.PersonAddressBuildingName = resolved.building || "";
+          row.output.PersonAddressCountry = "Singapore";
+        } else if (failReason) {
+          state.diagnostics.lookupFailuresByReason[failReason] =
+            (state.diagnostics.lookupFailuresByReason[failReason] || 0) + 1;
+          state.failedLookupRows.push({
+            MembershipId: row.membershipId,
+            NRIC: row.nric,
+            PostalCode: row.postalCode,
+            FailureReason: failReason
+          });
+        }
+      });
+    }
+
+    // Simple concurrency-limited queue.
+    let cursor = 0;
+    async function worker(){
+      while (cursor < uniqueCodes.length) {
+        const myIndex = cursor++;
+        const code = uniqueCodes[myIndex];
+        await resolveOne(code);
+        done++;
+        if (done % 5 === 0 || done === lookupTotal) {
+          lookupProgressText.textContent = done.toLocaleString() + " / " + lookupTotal.toLocaleString();
+          lookupProgressBar.style.width = lookupTotal ? Math.round((done/lookupTotal)*100) + "%" : "100%";
+          state.diagnostics.oneMapCallsMade = cache.size;
+          const remaining = lookupTotal - done;
+          const etaMs = remaining * ONEMAP_MIN_DISPATCH_INTERVAL_MS;
+          const etaText = remaining > 0
+            ? " · Est. time remaining: " + formatDuration(etaMs) + " (paced to stay under OneMap's rate limit)"
+            : "";
+          lookupDetail.textContent = "Unique postal codes: " + lookupTotal.toLocaleString() +
+            " · OneMap calls made: " + cache.size.toLocaleString() +
+            " · Reused from cache: " + state.diagnostics.cacheHitsSaved.toLocaleString() +
+            etaText;
+          await nextFrame();
+        }
+      }
+    }
+
+    if (lookupTotal === 0) {
+      lookupProgressText.textContent = "0 / 0";
+      lookupProgressBar.style.width = "100%";
+    } else {
+      const workers = [];
+      for (let w = 0; w < Math.min(ONEMAP_CONCURRENCY, uniqueCodes.length); w++) workers.push(worker());
+      await Promise.all(workers);
+    }
+
+    state.diagnostics.oneMapCallsMade = cache.size;
+    state.outputRows = merged.map(r => r.output);
+
+    buildOutputBlobs();
+    renderSummary();
+    goToStep(3);
+  }
+
+  function nextFrame(){
+    return new Promise(res => requestAnimationFrame(() => setTimeout(res, 0)));
+  }
+
+  function formatDuration(ms){
+    const totalSeconds = Math.ceil(ms / 1000);
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
+    return mins > 0 ? (mins + "m " + secs + "s") : (secs + "s");
+  }
+
+  function resetDiagnostics(){
+    state.diagnostics = {
+      matchedById: 0, matchedByNric: 0, unmatched: 0, updated: 0,
+      terminatedRemoved: 0, dobMissingOrInvalid: 0, duplicateMembershipIds: state.diagnostics.duplicateMembershipIds,
+      uniquePostalCodes: 0, cacheHitsSaved: 0, oneMapCallsMade: 0, lookupFailuresByReason: {}
+    };
+    state.outputRows = [];
+    state.failedLookupRows = [];
+    document.getElementById("merge-progress-text").textContent = "0 / 0";
+    document.getElementById("merge-progress-bar").style.width = "0%";
+    document.getElementById("lookup-progress-text").textContent = "0 / 0";
+    document.getElementById("lookup-progress-bar").style.width = "0%";
+  }
+
+  function buildOutputBlobs(){
+    const rows = state.outputRows.map(r => {
+      const ordered = {};
+      OUTPUT_COLUMNS.forEach(c => ordered[c] = r[c] !== undefined ? r[c] : "");
+      return ordered;
+    });
+    state.finalCsvBlob = csvBlobFromRows(rows);
+    state.failedCsvBlob = state.failedLookupRows.length
+      ? csvBlobFromRows(state.failedLookupRows)
+      : null;
+  }
+
+  /* ---------------------------------------------------------------------
+   * STEP 4: SUMMARY
+   * ------------------------------------------------------------------- */
+
+  function statCard(num, label){
+    return '<div class="stat-card"><div class="num">' + num.toLocaleString() +
+      '</div><div class="lab">' + label + '</div></div>';
+  }
+
+  function renderSummary(){
+    const d = state.diagnostics;
+    const grid = document.getElementById("stat-grid");
+    grid.innerHTML =
+      statCard(state.membershipRows.length, "Membership records read") +
+      statCard(state.detailsRows.length, "Member Details records read") +
+      statCard(d.matchedById, "Matched by MembershipId") +
+      statCard(d.matchedByNric, "Matched via NRIC fallback") +
+      statCard(d.unmatched, "No Member Details match") +
+      statCard(d.updated, "Records updated") +
+      statCard(d.terminatedRemoved, "Removed as Terminated") +
+      statCard(d.dobMissingOrInvalid, "Missing/unparseable DOB") +
+      statCard(d.uniquePostalCodes, "Unique valid postal codes") +
+      statCard(d.oneMapCallsMade, "OneMap calls made") +
+      statCard(d.cacheHitsSaved, "Lookups reused from cache") +
+      statCard(state.failedLookupRows.length, "Address lookup failures") +
+      statCard(state.outputRows.length, "Final rows in output");
+
+    const advisoryArea = document.getElementById("advisory-area");
+    advisoryArea.innerHTML = "";
+
+    advisoryArea.innerHTML += '<div class="callout warn"><b>Home / Mobile phone check:</b> ' +
+      'the source workbook\'s own remarks suggest these two fields may be labelled the wrong way ' +
+      'round at the source. Both were copied through as-is — please verify with the source-system ' +
+      'owner rather than assuming this tool corrected it.</div>';
+
+    if (d.duplicateMembershipIds && d.duplicateMembershipIds.length){
+      advisoryArea.innerHTML += '<div class="callout warn"><b>Duplicate MembershipIds detected:</b> ' +
+        d.duplicateMembershipIds.length + ' duplicate ID value(s) were found in the source files. ' +
+        'The first occurrence of each was used.</div>';
+    }
+
+    if (Object.keys(d.lookupFailuresByReason).length){
+      const parts = Object.entries(d.lookupFailuresByReason)
+        .map(([reason,count]) => reason + ": " + count).join(" · ");
+      advisoryArea.innerHTML += '<div class="callout info"><b>Address lookup failures by reason:</b> ' +
+        parts + '</div>';
+    }
+  }
+
+  document.getElementById("btn-to-download").addEventListener("click", () => {
+    document.getElementById("btn-download-failed").style.display =
+      state.failedCsvBlob ? "inline-block" : "none";
+    goToStep(4);
+  });
+
+  /* ---------------------------------------------------------------------
+   * STEP 5: DOWNLOAD
+   * ------------------------------------------------------------------- */
+
+  document.getElementById("btn-download-main").addEventListener("click", () => {
+    downloadBlob(state.finalCsvBlob, "Final_Merged_Members.csv");
+  });
+  document.getElementById("btn-download-failed").addEventListener("click", () => {
+    if (state.failedCsvBlob) downloadBlob(state.failedCsvBlob, "Failed_Address_Lookup.csv");
+  });
+  document.getElementById("btn-start-over").addEventListener("click", () => {
+    location.reload();
+  });
+
+})();
+</script>
+</body>
+</html>
