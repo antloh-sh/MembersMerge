@@ -283,7 +283,6 @@
     Citizenship:                   { m: "Citizenship",                   d: "Citizenship" },
     Race:                          { m: "Race",                          d: "Race" },
     Religion:                      { m: "Religion",                      d: "Religion" },
-    HomePhone:                     { m: "HomePhone",                     d: "Phone" },
     ResidesWithinServiceBoundary:  { m: "ResidesWithinServiceBoundary",  d: "ResidesWithinServiceBoundaryStr" },
     PersonAddressPostalCode:       { m: "PersonAddressPostalCode",       d: "NricAddress_PostalCode" },
     PersonAddressBlockNo:          { m: "PersonAddressBlockNo",          d: "NricAddress_BlockNo" },
@@ -291,10 +290,59 @@
     Language:                      { m: "Language",                      d: "SpokenLanguage" },
     Hobbies:                       { m: "Hobbies",                       d: "Hobbies" }
   };
+  // HomePhone/MobilePhone are NOT simple 1:1 overwrites. Membership's own HomePhone/MobilePhone
+  // columns are clean, untagged 8-digit numbers, correctly split by column already. But
+  // MemberDetails' single "Phone" field packs one or both numbers together, each tagged
+  // "(H)"/"(M)" (occasionally also "(O)", which is dropped — OtherPhone is a Drop field), e.g.
+  // "(H) 62803149, (M) 98781529" or just "(M) 94769266". So each tagged part is parsed out of
+  // Phone and used to overwrite the matching output field independently; whichever part Details
+  // doesn't supply falls back to Membership's own value for that field.
+  function parseTaggedPhones(raw){
+    const result = { H: "", M: "" };
+    if (!raw) return result;
+    const re = /\(?\s*([HMO])\s*\)?\s*[:\-]?\s*(\d{6,8})/gi;
+    let match;
+    while ((match = re.exec(raw)) !== null) {
+      const label = match[1].toUpperCase();
+      const digits = match[2];
+      if (label === "H" && !result.H) result.H = digits;
+      if (label === "M" && !result.M) result.M = digits;
+      // "O" (Other) intentionally ignored — no output field for it.
+    }
+    return result;
+  }
+
+  // Member Details' "FullAddress" field (marked "Drop" in the field-mapping workbook, but
+  // present and populated for effectively all rows in practice) already contains a parsed
+  // block/street/[building]/unit/postal string, e.g.
+  // "8A, UPPER BOON KENG ROAD, KALLANG TRIVISTA, 16-502, Singapore 381008". Parsing this
+  // directly avoids an OneMap call entirely for the vast majority of matched members —
+  // OneMap is only needed as a last-resort fallback when this yields nothing usable.
+  function parseFullAddress(fullAddress, blockNo, unitNo){
+    const fa = (fullAddress || "").trim();
+    if (!fa) return { street: "", building: "" };
+
+    const m = fa.match(/Singapore\s+\d{6}\s*$/i);
+    let remainder = m ? fa.slice(0, m.index) : fa;
+    remainder = remainder.replace(/,\s*$/, "").trim();
+    let parts = remainder.split(",").map(p => p.trim());
+
+    const blockTrim = (blockNo || "").trim().toUpperCase();
+    if (parts.length && blockTrim && parts[0].toUpperCase() === blockTrim) {
+      parts = parts.slice(1);
+    }
+    const unitTrim = (unitNo || "").trim().toUpperCase();
+    if (parts.length) {
+      const last = parts[parts.length - 1].replace(/^#/, "").trim().toUpperCase();
+      if (unitTrim && last === unitTrim) parts = parts.slice(0, -1);
+    }
+    parts = parts.filter(p => !isBlank(p)); // drops "", "NIL", etc.
+
+    return { street: parts[0] || "", building: parts[1] || "" };
+  }
 
   // Fields that exist only on the Membership side (copied straight through).
   const MEMBERSHIP_ONLY_FIELDS = {
-    MobilePhone: "MobilePhone",
     CurrentEmploymentStatus: "CurrentEmploymentStatus"
   };
 
@@ -339,6 +387,7 @@
       terminatedRemoved: 0,
       dobMissingOrInvalid: 0,
       duplicateMembershipIds: [],
+      resolvedWithoutOneMap: 0,
       uniquePostalCodes: 0,
       cacheHitsSaved: 0,
       oneMapCallsMade: 0,
@@ -680,6 +729,18 @@
         output[outName] = mRow[MEMBERSHIP_ONLY_FIELDS[outName]] || "";
       }
 
+      // Phone fields: MemberDetails.Phone may carry one or both of "(H) ########"/"(M) ########"
+      // packed into a single field. Parse it and overwrite each output field independently;
+      // whichever part it doesn't supply falls back to Membership's own (already correctly
+      // split) HomePhone/MobilePhone column.
+      const phoneParts = dRow ? parseTaggedPhones(dRow.Phone) : { H: "", M: "" };
+      const priorHome = mRow.HomePhone || "";
+      const priorMobile = mRow.MobilePhone || "";
+      output.HomePhone = overwrite(priorHome, phoneParts.H);
+      output.MobilePhone = overwrite(priorMobile, phoneParts.M);
+      if (dRow && !isBlank(phoneParts.H) && output.HomePhone !== priorHome) wasUpdated = true;
+      if (dRow && !isBlank(phoneParts.M) && output.MobilePhone !== priorMobile) wasUpdated = true;
+
       // Details-only fields
       for (const outName in DETAILS_ONLY_FIELDS){
         output[outName] = dRow ? (dRow[DETAILS_ONLY_FIELDS[outName]] || "") : "";
@@ -690,8 +751,16 @@
       if (!dob) state.diagnostics.dobMissingOrInvalid++;
       output.Age = computeAge(dob);
 
-      // Address fields start blank; OneMap fills them in the next phase.
-      ONEMAP_FIELDS.forEach(f => output[f] = "");
+      // Address fields: prefer the parsed FullAddress from Member Details (freshest source,
+      // consistent with how every other field here treats Details vs Membership), falling
+      // back to Membership's own PersonAddressStreetName/BuildingName if Details has nothing
+      // usable. OneMap is only used afterwards, and only for whatever's still blank.
+      const priorStreet = mRow.PersonAddressStreetName || "";
+      const priorBuilding = mRow.PersonAddressBuildingName || "";
+      const fromFullAddress = dRow ? parseFullAddress(dRow.FullAddress, dRow.NricAddress_BlockNo, dRow.NricAddress_UnitNo) : { street: "", building: "" };
+      output.PersonAddressStreetName = overwrite(priorStreet, fromFullAddress.street);
+      output.PersonAddressBuildingName = overwrite(priorBuilding, fromFullAddress.building);
+      output.PersonAddressCountry = mRow.PersonAddressCountry || "";
 
       if (wasUpdated) state.diagnostics.updated++;
 
@@ -717,13 +786,21 @@
     progressText.textContent = total.toLocaleString() + " / " + total.toLocaleString();
     progressBar.style.width = "100%";
 
-    // 3. Collect unique postal codes needing lookup.
+    // 3. Collect unique postal codes needing lookup — ONLY for rows where neither Membership's
+    // own address fields nor Member Details' FullAddress could supply a street name. Most rows
+    // are resolved without any network call at all; OneMap is a last-resort fallback.
     const postalMap = new Map(); // postalCode -> array of merged-row indices
+    let skippedNoLookupNeeded = 0;
     merged.forEach((row, idx) => {
+      if (row.output.PersonAddressStreetName) {
+        skippedNoLookupNeeded++;
+        return; // already resolved from Membership/FullAddress — no OneMap call needed
+      }
       const clean = cleanPostal(row.postalCode);
       if (!postalMap.has(clean)) postalMap.set(clean, []);
       postalMap.get(clean).push(idx);
     });
+    state.diagnostics.resolvedWithoutOneMap = skippedNoLookupNeeded;
 
     const uniqueCodes = [...postalMap.keys()];
     state.diagnostics.uniquePostalCodes = uniqueCodes.filter(c => isValidSgPostal(c)).length;
@@ -753,11 +830,11 @@
       const rowIndices = postalMap.get(code);
 
       if (!code) {
-        applyResultToRows(rowIndices, null, "Missing Postal Code");
+        applyResultToRows(rowIndices, null, "Missing Postal Code", "");
         return;
       }
       if (!isValidSgPostal(code)) {
-        applyResultToRows(rowIndices, null, "Invalid Postal Code");
+        applyResultToRows(rowIndices, null, "Invalid Postal Code", "");
         return;
       }
 
@@ -765,9 +842,9 @@
         state.diagnostics.cacheHitsSaved += rowIndices.length - 1 >= 0 ? rowIndices.length : 0;
         const cached = cache.get(code);
         if (cached && cached.failed) {
-          applyResultToRows(rowIndices, null, cached.failed);
+          applyResultToRows(rowIndices, null, cached.failed, cached.detail || "");
         } else {
-          applyResultToRows(rowIndices, cached, null);
+          applyResultToRows(rowIndices, cached, null, "");
         }
         return;
       }
@@ -787,18 +864,29 @@
               await new Promise(res => setTimeout(res, 1000 * (attempt + 1)));
               continue;
             }
-            cache.set(code, { failed: "Lookup Error" });
-            applyResultToRows(rowIndices, null, "Lookup Error");
+            const detail = "HTTP 429 (rate limited) after " + (ONEMAP_MAX_RETRIES + 1) + " attempt(s)";
+            cache.set(code, { failed: "Rate Limited (HTTP 429)", detail });
+            applyResultToRows(rowIndices, null, "Rate Limited (HTTP 429)", detail);
             return;
           }
-          if (!resp.ok) throw new Error("HTTP " + resp.status);
+          if (!resp.ok) {
+            // Non-429 HTTP error (5xx, 4xx) — OneMap reached, but returned a failure status.
+            if (attempt < ONEMAP_MAX_RETRIES) {
+              await new Promise(res => setTimeout(res, 500 * (attempt + 1)));
+              continue;
+            }
+            const detail = "HTTP " + resp.status + " " + (resp.statusText || "");
+            cache.set(code, { failed: "OneMap Server Error", detail });
+            applyResultToRows(rowIndices, null, "OneMap Server Error", detail.trim());
+            return;
+          }
 
           const data = await resp.json();
           const result = (data && data.results && data.results.length) ? data.results[0] : null;
 
           if (!result) {
-            cache.set(code, { failed: "No OneMap Match" });
-            applyResultToRows(rowIndices, null, "No OneMap Match");
+            cache.set(code, { failed: "No OneMap Match", detail: "" });
+            applyResultToRows(rowIndices, null, "No OneMap Match", "");
             return;
           }
 
@@ -808,21 +896,26 @@
           const building = isNil(result.BUILDING) ? "" : result.BUILDING;
           const resolved = { street, building };
           cache.set(code, resolved);
-          applyResultToRows(rowIndices, resolved, null);
+          applyResultToRows(rowIndices, resolved, null, "");
           return;
         } catch (e) {
+          // fetch() itself threw — network unreachable, DNS failure, or CORS block.
+          // Browsers surface all three as a generic "TypeError: Failed to fetch", which is
+          // why the exact message is worth keeping: it's the only signal available to tell
+          // a real outage apart from a CORS policy change.
           if (attempt < ONEMAP_MAX_RETRIES) {
             await new Promise(res => setTimeout(res, 500 * (attempt + 1)));
             continue;
           }
-          cache.set(code, { failed: "Lookup Error" });
-          applyResultToRows(rowIndices, null, "Lookup Error");
+          const detail = (e && e.message) ? e.message : String(e);
+          cache.set(code, { failed: "Network/Connection Error", detail });
+          applyResultToRows(rowIndices, null, "Network/Connection Error", detail);
           return;
         }
       }
     }
 
-    function applyResultToRows(rowIndices, resolved, failReason){
+    function applyResultToRows(rowIndices, resolved, failReason, detail){
       rowIndices.forEach(idx => {
         const row = merged[idx];
         if (resolved) {
@@ -836,7 +929,8 @@
             MembershipId: row.membershipId,
             NRIC: row.nric,
             PostalCode: row.postalCode,
-            FailureReason: failReason
+            FailureReason: failReason,
+            Detail: detail || ""
           });
         }
       });
@@ -900,6 +994,7 @@
     state.diagnostics = {
       matchedById: 0, matchedByNric: 0, unmatched: 0, updated: 0,
       terminatedRemoved: 0, dobMissingOrInvalid: 0, duplicateMembershipIds: state.diagnostics.duplicateMembershipIds,
+      resolvedWithoutOneMap: 0,
       uniquePostalCodes: 0, cacheHitsSaved: 0, oneMapCallsMade: 0, lookupFailuresByReason: {}
     };
     state.outputRows = [];
@@ -943,7 +1038,8 @@
       statCard(d.updated, "Records updated") +
       statCard(d.terminatedRemoved, "Removed as Terminated") +
       statCard(d.dobMissingOrInvalid, "Missing/unparseable DOB") +
-      statCard(d.uniquePostalCodes, "Unique valid postal codes") +
+      statCard(d.resolvedWithoutOneMap, "Addresses resolved without OneMap") +
+      statCard(d.uniquePostalCodes, "Unique valid postal codes still needing lookup") +
       statCard(d.oneMapCallsMade, "OneMap calls made") +
       statCard(d.cacheHitsSaved, "Lookups reused from cache") +
       statCard(state.failedLookupRows.length, "Address lookup failures") +
