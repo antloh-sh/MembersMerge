@@ -8,7 +8,6 @@
   integrity="sha512-EbdJQSugx0nVWrtyK3JdQQ/03mS3Q1UiAhRtErbwl1YL/+e2hZdlIcSURxxh7WXHTzn83sjlh2rysACoJGfb6g=="
   crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"
-  integrity="sha512-r22/ChDzG1y6TlLpR2iCC9kYl96rIm/5+M9vq1SIs9xKTrpVBDDJplL3PpYcgQBWTHVXEYT7kL+G1X9CHp3gcA=="
   crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <style>
   :root{
@@ -535,29 +534,44 @@
   }
 
   function excelBlobFromRows(rows, columns){
-    // Prepare data array with headers
-    const data = [columns];
-    rows.forEach(row => {
-      const rowData = [];
-      columns.forEach(col => {
-        rowData.push(row[col] !== undefined ? row[col] : "");
-      });
-      data.push(rowData);
-    });
+    try {
+      // Check if XLSX is loaded
+      if (typeof XLSX === 'undefined') {
+        throw new Error('XLSX library not loaded. Please check your internet connection and try again.');
+      }
 
-    // Create workbook
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet(data);
-    
-    // Auto column widths (optional, minimal)
-    const colWidths = columns.map(col => ({ wch: Math.max(col.length * 1.2, 12) }));
-    ws['!cols'] = colWidths;
-    
-    XLSX.utils.book_append_sheet(wb, ws, "Merged Members");
-    
-    // Generate Excel file
-    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-    return new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      // Prepare data array with headers
+      const data = [columns];
+      rows.forEach(row => {
+        const rowData = [];
+        columns.forEach(col => {
+          rowData.push(row[col] !== undefined ? row[col] : "");
+        });
+        data.push(rowData);
+      });
+
+      // Create workbook
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(data);
+      
+      // Auto column widths (minimal, no styling)
+      const colWidths = columns.map(col => ({ wch: Math.max(col.length * 1.2, 12) }));
+      ws['!cols'] = colWidths;
+      
+      XLSX.utils.book_append_sheet(wb, ws, "Merged Members");
+      
+      // Generate Excel file
+      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+      return new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    } catch (e) {
+      console.error('Excel generation error:', e);
+      // Fallback to CSV if Excel generation fails
+      return csvBlobFromRows(rows.map(r => {
+        const row = {};
+        columns.forEach(col => row[col] = r[col] !== undefined ? r[col] : "");
+        return row;
+      }));
+    }
   }
 
   /* ---------------------------------------------------------------------
