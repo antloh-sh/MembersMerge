@@ -178,7 +178,7 @@
 
   <!-- STEP 1: UPLOAD -->
   <section class="panel" id="panel-upload">
-    <h2>Step 1 — Upload the two CSV exports</h2>
+    <h2>Step 1 — Upload the CSV exports</h2>
     <div class="upload-grid">
       <label class="dropzone" id="dz-membership">
         <input type="file" accept=".csv" id="file-membership">
@@ -193,6 +193,15 @@
         <div class="hint">DataListing-AACMemberDetails.csv</div>
         <div class="filename" id="fn-details"></div>
         <div class="rowcount" id="rc-details"></div>
+      </label>
+    </div>
+    <div class="upload-grid" style="margin-top:16px;">
+      <label class="dropzone" id="dz-activities">
+        <input type="file" accept=".csv" id="file-activities">
+        <div class="label">Member Activities CSV (optional)</div>
+        <div class="hint">Adds ActivityCount, matched by NRIC. Skip this if you don't have it — ActivityCount will show 0 for everyone.</div>
+        <div class="filename" id="fn-activities"></div>
+        <div class="rowcount" id="rc-activities"></div>
       </label>
     </div>
     <div class="actions">
@@ -267,7 +276,8 @@
     "MaritalStatus","Citizenship","Race","Religion","HomePhone","MobilePhone",
     "ResidesWithinServiceBoundary","PersonAddressPostalCode","PersonAddressBlockNo",
     "PersonAddressStoreyUnit","PersonAddressStreetName","PersonAddressBuildingName",
-    "PersonAddressCountry","Language","CurrentEmploymentStatus","Hobbies","Remarks"
+    "PersonAddressCountry","Language","CurrentEmploymentStatus","Hobbies","Remarks",
+    "HouseholdID","ActivityCount"
   ];
 
   // Fields resolved by the standard "MemberDetails overwrites if not blank" rule.
@@ -359,6 +369,7 @@
 
   const REQUIRED_MEMBERSHIP_COLS = ["MembershipId", "MembershipStatus", "NRIC"];
   const REQUIRED_DETAILS_COLS = ["MembershipId", "CurrentMembershipStatus", "RegistrationDocumentNumber"];
+  const REQUIRED_ACTIVITIES_COLS = ["member_registrationdocumentnumber", "activities_attended_count"];
 
   const ONEMAP_SEARCH_URL = "https://www.onemap.gov.sg/api/common/elastic/search";
   const ONEMAP_CONCURRENCY = 6;
@@ -377,8 +388,10 @@
   const state = {
     membershipRows: null,
     detailsRows: null,
+    activitiesRows: null,
     membershipFilename: "",
     detailsFilename: "",
+    activitiesFilename: "",
     diagnostics: {
       matchedById: 0,
       matchedByNric: 0,
@@ -391,7 +404,10 @@
       uniquePostalCodes: 0,
       cacheHitsSaved: 0,
       oneMapCallsMade: 0,
-      lookupFailuresByReason: {}
+      lookupFailuresByReason: {},
+      duplicateActivityNrics: [],
+      activityMatched: 0,
+      activityUnmatched: 0
     },
     outputRows: [],
     failedLookupRows: [],
@@ -566,6 +582,14 @@
       checkReadyForValidation();
     });
 
+  wireDropzone("dz-activities","file-activities","fn-activities","rc-activities",
+    function(rows, fields, filename){
+      state.activitiesRows = rows;
+      state.activitiesFields = fields;
+      state.activitiesFilename = filename;
+      checkReadyForValidation();
+    });
+
   function checkReadyForValidation(){
     document.getElementById("btn-to-validate").disabled =
       !(state.membershipRows && state.detailsRows);
@@ -610,6 +634,22 @@
       hardStop = true;
     } else {
       addCheck(list, "ok", "Member Details CSV has all required columns", REQUIRED_DETAILS_COLS.join(", "));
+    }
+
+    // Activities CSV is optional — only validated if provided.
+    if (state.activitiesRows) {
+      const missingActivitiesCols = REQUIRED_ACTIVITIES_COLS.filter(c => !state.activitiesFields.includes(c));
+      if (missingActivitiesCols.length){
+        addCheck(list, "err", "Member Activities CSV is missing required columns",
+          missingActivitiesCols.join(", ") + " — check this is the correct export, or remove it and re-upload without it.");
+        hardStop = true;
+      } else {
+        addCheck(list, "ok", "Member Activities CSV has all required columns",
+          state.activitiesRows.length.toLocaleString() + " rows — will populate ActivityCount.");
+      }
+    } else {
+      addCheck(list, "warn", "No Member Activities CSV provided",
+        "ActivityCount will be set to 0 for every record.");
     }
 
     // Non-empty
@@ -677,6 +717,23 @@
       const nric = normNric(row.RegistrationDocumentNumber);
       if (nric && !byNric.has(nric)) byNric.set(nric, row);
     });
+
+    // 1b. Index the (optional) Activities CSV by normalised NRIC. Duplicate NRICs are flagged
+    // for staff review rather than guessed at (summed/averaged) — first occurrence is used.
+    const activityByNric = new Map();
+    const duplicateActivityNrics = new Set();
+    if (state.activitiesRows) {
+      state.activitiesRows.forEach(row => {
+        const nric = normNric(row.member_registrationdocumentnumber);
+        if (!nric) return;
+        if (activityByNric.has(nric)) {
+          duplicateActivityNrics.add(nric);
+          return; // keep first occurrence, don't overwrite
+        }
+        activityByNric.set(nric, row.activities_attended_count);
+      });
+    }
+    state.diagnostics.duplicateActivityNrics = [...duplicateActivityNrics];
 
     // 2. Merge pass over Membership rows.
     const merged = []; // { output: {...}, postalCode: "" }
@@ -761,6 +818,24 @@
       output.PersonAddressStreetName = overwrite(priorStreet, fromFullAddress.street);
       output.PersonAddressBuildingName = overwrite(priorBuilding, fromFullAddress.building);
       output.PersonAddressCountry = mRow.PersonAddressCountry || "";
+
+      // HouseholdID: PersonAddressPostalCode _ PersonAddressBlockNo _ PersonAddressStoreyUnit.
+      // A blank Storey/Unit means a landed property (no floor/unit number applies), so that
+      // segment is filled with "LANDED" rather than left empty.
+      const householdBlock = output.PersonAddressBlockNo || "";
+      const householdStoreyUnit = isBlank(output.PersonAddressStoreyUnit) ? "LANDED" : output.PersonAddressStoreyUnit;
+      output.HouseholdID = (output.PersonAddressPostalCode || "") + "_" + householdBlock + "_" + householdStoreyUnit;
+
+      // ActivityCount: matched by NRIC against the optional Activities CSV. No match (or no
+      // file provided at all) defaults to 0 rather than blank.
+      const activityMatch = activityByNric.get(normNric(output.NRIC));
+      if (activityMatch !== undefined && !isBlank(activityMatch)) {
+        output.ActivityCount = activityMatch;
+        state.diagnostics.activityMatched++;
+      } else {
+        output.ActivityCount = "0";
+        if (state.activitiesRows) state.diagnostics.activityUnmatched++;
+      }
 
       if (wasUpdated) state.diagnostics.updated++;
 
@@ -995,7 +1070,8 @@
       matchedById: 0, matchedByNric: 0, unmatched: 0, updated: 0,
       terminatedRemoved: 0, dobMissingOrInvalid: 0, duplicateMembershipIds: state.diagnostics.duplicateMembershipIds,
       resolvedWithoutOneMap: 0,
-      uniquePostalCodes: 0, cacheHitsSaved: 0, oneMapCallsMade: 0, lookupFailuresByReason: {}
+      uniquePostalCodes: 0, cacheHitsSaved: 0, oneMapCallsMade: 0, lookupFailuresByReason: {},
+      duplicateActivityNrics: [], activityMatched: 0, activityUnmatched: 0
     };
     state.outputRows = [];
     state.failedLookupRows = [];
@@ -1043,6 +1119,8 @@
       statCard(d.oneMapCallsMade, "OneMap calls made") +
       statCard(d.cacheHitsSaved, "Lookups reused from cache") +
       statCard(state.failedLookupRows.length, "Address lookup failures") +
+      statCard(d.activityMatched, "ActivityCount matched") +
+      statCard(d.activityUnmatched, "ActivityCount defaulted to 0 (no match)") +
       statCard(state.outputRows.length, "Final rows in output");
 
     const advisoryArea = document.getElementById("advisory-area");
@@ -1052,6 +1130,19 @@
       'the source workbook\'s own remarks suggest these two fields may be labelled the wrong way ' +
       'round at the source. Both were copied through as-is — please verify with the source-system ' +
       'owner rather than assuming this tool corrected it.</div>';
+
+    if (!state.activitiesRows) {
+      advisoryArea.innerHTML += '<div class="callout info"><b>No Activities CSV provided:</b> ' +
+        'ActivityCount is set to 0 for every record this run.</div>';
+    }
+
+    if (d.duplicateActivityNrics && d.duplicateActivityNrics.length){
+      advisoryArea.innerHTML += '<div class="callout warn"><b>Duplicate NRICs in Activities CSV:</b> ' +
+        d.duplicateActivityNrics.length + ' NRIC(s) had more than one row in the activities file. ' +
+        'The first occurrence was used for ActivityCount — please check the source file for: ' +
+        d.duplicateActivityNrics.slice(0, 10).join(', ') +
+        (d.duplicateActivityNrics.length > 10 ? ', …' : '') + '</div>';
+    }
 
     if (d.duplicateMembershipIds && d.duplicateMembershipIds.length){
       advisoryArea.innerHTML += '<div class="callout warn"><b>Duplicate MembershipIds detected:</b> ' +
