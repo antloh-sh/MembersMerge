@@ -447,6 +447,26 @@
     return /^[0-9]{6}$/.test(digitsOnly);
   }
 
+  // Helper to ensure 6-digit postal code
+  function normalizePostalCode(rawPostal) {
+    const digits = cleanPostal(rawPostal);
+    if (!digits) return "";
+    return digits.padStart(6, "0");
+  }
+
+  // Helper to normalize Storey/Unit for HouseholdID consistency
+  function normalizeStoreyUnit(rawUnit) {
+    if (isBlank(rawUnit)) return "LANDED";
+    
+    // Clean leading/trailing spaces and '#' characters
+    let clean = String(rawUnit).trim().replace(/^#/, "");
+  
+    // Pad single-digit floor numbers (e.g., '3-12' -> '03-12', '8' -> '08')
+    clean = clean.replace(/^(\d)(?=-\d+|\s*$)/, "0$1");
+    
+    return clean || "LANDED";
+  }
+
   // Tolerant date parser: DD/MM/YYYY, YYYY-MM-DD, MM/DD/YYYY (fallback), Excel serial numbers.
   function parseFlexibleDate(raw){
     if (isBlank(raw)) return null;
@@ -822,9 +842,11 @@
       // HouseholdID: PersonAddressPostalCode _ PersonAddressBlockNo _ PersonAddressStoreyUnit.
       // A blank Storey/Unit means a landed property (no floor/unit number applies), so that
       // segment is filled with "LANDED" rather than left empty.
-      const householdBlock = output.PersonAddressBlockNo || "";
-      const householdStoreyUnit = isBlank(output.PersonAddressStoreyUnit) ? "LANDED" : output.PersonAddressStoreyUnit;
-      output.HouseholdID = (output.PersonAddressPostalCode || "") + "_" + householdBlock + "_" + householdStoreyUnit;
+      // Normalize postal code to 6 digits and storey/unit to ensure consistency.
+      const householdPostal = normalizePostalCode(output.PersonAddressPostalCode);
+      const householdBlock = (output.PersonAddressBlockNo || "").trim();
+      const householdStoreyUnit = normalizeStoreyUnit(output.PersonAddressStoreyUnit);
+      output.HouseholdID = `${householdPostal}_${householdBlock}_${householdStoreyUnit}`;
 
       // ActivityCount: matched by NRIC against the optional Activities CSV. No match (or no
       // file provided at all) defaults to 0 rather than blank.
