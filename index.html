@@ -7,6 +7,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.1/papaparse.min.js"
   integrity="sha512-EbdJQSugx0nVWrtyK3JdQQ/03mS3Q1UiAhRtErbwl1YL/+e2hZdlIcSURxxh7WXHTzn83sjlh2rysACoJGfb6g=="
   crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"
+  integrity="sha512-r22/ChDzG1y6TlLpR2iCC9kYl96rIm/5+M9vq1SIs9xKTrpVBDDJplL3PpYcgQBWTHVXEYT7kL+G1X9CHp3gcA=="
+  crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <style>
   :root{
     --ink:#1c2b2e;
@@ -249,7 +252,7 @@
     <p>Your merged roster is ready. The failed-lookup file only appears if at least one address
        could not be resolved.</p>
     <div class="download-row">
-      <button id="btn-download-main">Download Final_Merged_Members.csv</button>
+      <button id="btn-download-main">Download Final_Merged_Members.xlsx</button>
       <button class="ghost" id="btn-download-failed" style="display:none;">Download Failed_Address_Lookup.csv</button>
     </div>
     <div class="actions">
@@ -411,7 +414,7 @@
     },
     outputRows: [],
     failedLookupRows: [],
-    finalCsvBlob: null,
+    finalExcelBlob: null,
     failedCsvBlob: null
   };
 
@@ -529,6 +532,32 @@
   function csvBlobFromRows(rows){
     const csv = Papa.unparse(rows);
     return new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  }
+
+  function excelBlobFromRows(rows, columns){
+    // Prepare data array with headers
+    const data = [columns];
+    rows.forEach(row => {
+      const rowData = [];
+      columns.forEach(col => {
+        rowData.push(row[col] !== undefined ? row[col] : "");
+      });
+      data.push(rowData);
+    });
+
+    // Create workbook
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    
+    // Auto column widths (optional, minimal)
+    const colWidths = columns.map(col => ({ wch: Math.max(col.length * 1.2, 12) }));
+    ws['!cols'] = colWidths;
+    
+    XLSX.utils.book_append_sheet(wb, ws, "Merged Members");
+    
+    // Generate Excel file
+    const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    return new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   }
 
   /* ---------------------------------------------------------------------
@@ -1104,12 +1133,9 @@
   }
 
   function buildOutputBlobs(){
-    const rows = state.outputRows.map(r => {
-      const ordered = {};
-      OUTPUT_COLUMNS.forEach(c => ordered[c] = r[c] !== undefined ? r[c] : "");
-      return ordered;
-    });
-    state.finalCsvBlob = csvBlobFromRows(rows);
+    // Main file as Excel (.xlsx)
+    state.finalExcelBlob = excelBlobFromRows(state.outputRows, OUTPUT_COLUMNS);
+    // Failed lookup file as CSV (stays as CSV per requirements)
     state.failedCsvBlob = state.failedLookupRows.length
       ? csvBlobFromRows(state.failedLookupRows)
       : null;
@@ -1191,7 +1217,7 @@
    * ------------------------------------------------------------------- */
 
   document.getElementById("btn-download-main").addEventListener("click", () => {
-    downloadBlob(state.finalCsvBlob, "Final_Merged_Members.csv");
+    downloadBlob(state.finalExcelBlob, "Final_Merged_Members.xlsx");
   });
   document.getElementById("btn-download-failed").addEventListener("click", () => {
     if (state.failedCsvBlob) downloadBlob(state.failedCsvBlob, "Failed_Address_Lookup.csv");
