@@ -7,8 +7,6 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.1/papaparse.min.js"
   integrity="sha512-EbdJQSugx0nVWrtyK3JdQQ/03mS3Q1UiAhRtErbwl1YL/+e2hZdlIcSURxxh7WXHTzn83sjlh2rysACoJGfb6g=="
   crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"
-  crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <style>
   :root{
     --ink:#1c2b2e;
@@ -251,7 +249,7 @@
     <p>Your merged roster is ready. The failed-lookup file only appears if at least one address
        could not be resolved.</p>
     <div class="download-row">
-      <button id="btn-download-main">Download Final_Merged_Members.xlsx</button>
+      <button id="btn-download-main">Download Final_Merged_Members.csv</button>
       <button class="ghost" id="btn-download-failed" style="display:none;">Download Failed_Address_Lookup.csv</button>
     </div>
     <div class="actions">
@@ -400,6 +398,7 @@
       unmatched: 0,
       updated: 0,
       terminatedRemoved: 0,
+      withdrawnRemoved: 0,
       dobMissingOrInvalid: 0,
       duplicateMembershipIds: [],
       resolvedWithoutOneMap: 0,
@@ -413,7 +412,7 @@
     },
     outputRows: [],
     failedLookupRows: [],
-    finalExcelBlob: null,
+    finalCsvBlob: null,
     failedCsvBlob: null
   };
 
@@ -447,26 +446,6 @@
   function isValidSgPostal(v){
     const digitsOnly = String(v || "").trim();
     return /^[0-9]{6}$/.test(digitsOnly);
-  }
-
-  // Helper to ensure 6-digit postal code
-  function normalizePostalCode(rawPostal) {
-    const digits = cleanPostal(rawPostal);
-    if (!digits) return "";
-    return digits.padStart(6, "0");
-  }
-
-  // Helper to normalize Storey/Unit for HouseholdID consistency
-  function normalizeStoreyUnit(rawUnit) {
-    if (isBlank(rawUnit)) return "LANDED";
-    
-    // Clean leading/trailing spaces and '#' characters
-    let clean = String(rawUnit).trim().replace(/^#/, "");
-  
-    // Pad single-digit floor numbers (e.g., '3-12' -> '03-12', '8' -> '08')
-    clean = clean.replace(/^(\d)(?=-\d+|\s*$)/, "0$1");
-    
-    return clean || "LANDED";
   }
 
   // Tolerant date parser: DD/MM/YYYY, YYYY-MM-DD, MM/DD/YYYY (fallback), Excel serial numbers.
@@ -517,6 +496,10 @@
     return String(statusValue || "").trim().toLowerCase() === "terminated";
   }
 
+  function isWithdrawn(statusValue){
+    return String(statusValue || "").trim().toLowerCase() === "withdrawn";
+  }
+
   function downloadBlob(blob, filename){
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -531,47 +514,6 @@
   function csvBlobFromRows(rows){
     const csv = Papa.unparse(rows);
     return new Blob([csv], { type: "text/csv;charset=utf-8;" });
-  }
-
-  function excelBlobFromRows(rows, columns){
-    try {
-      // Check if XLSX is loaded
-      if (typeof XLSX === 'undefined') {
-        throw new Error('XLSX library not loaded. Please check your internet connection and try again.');
-      }
-
-      // Prepare data array with headers
-      const data = [columns];
-      rows.forEach(row => {
-        const rowData = [];
-        columns.forEach(col => {
-          rowData.push(row[col] !== undefined ? row[col] : "");
-        });
-        data.push(rowData);
-      });
-
-      // Create workbook
-      const wb = XLSX.utils.book_new();
-      const ws = XLSX.utils.aoa_to_sheet(data);
-      
-      // Auto column widths (minimal, no styling)
-      const colWidths = columns.map(col => ({ wch: Math.max(col.length * 1.2, 12) }));
-      ws['!cols'] = colWidths;
-      
-      XLSX.utils.book_append_sheet(wb, ws, "Merged Members");
-      
-      // Generate Excel file
-      const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-      return new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    } catch (e) {
-      console.error('Excel generation error:', e);
-      // Fallback to CSV if Excel generation fails
-      return csvBlobFromRows(rows.map(r => {
-        const row = {};
-        columns.forEach(col => row[col] = r[col] !== undefined ? r[col] : "");
-        return row;
-      }));
-    }
   }
 
   /* ---------------------------------------------------------------------
@@ -885,11 +827,9 @@
       // HouseholdID: PersonAddressPostalCode _ PersonAddressBlockNo _ PersonAddressStoreyUnit.
       // A blank Storey/Unit means a landed property (no floor/unit number applies), so that
       // segment is filled with "LANDED" rather than left empty.
-      // Normalize postal code to 6 digits and storey/unit to ensure consistency.
-      const householdPostal = normalizePostalCode(output.PersonAddressPostalCode);
-      const householdBlock = (output.PersonAddressBlockNo || "").trim();
-      const householdStoreyUnit = normalizeStoreyUnit(output.PersonAddressStoreyUnit);
-      output.HouseholdID = `${householdPostal}_${householdBlock}_${householdStoreyUnit}`;
+      const householdBlock = output.PersonAddressBlockNo || "";
+      const householdStoreyUnit = isBlank(output.PersonAddressStoreyUnit) ? "LANDED" : output.PersonAddressStoreyUnit;
+      output.HouseholdID = (output.PersonAddressPostalCode || "") + "_" + householdBlock + "_" + householdStoreyUnit;
 
       // ActivityCount: matched by NRIC against the optional Activities CSV. No match (or no
       // file provided at all) defaults to 0 rather than blank.
@@ -907,6 +847,12 @@
       // Terminated filter (applied to the resolved MembershipStatus)
       if (isTerminated(output.MembershipStatus)) {
         state.diagnostics.terminatedRemoved++;
+        continue;
+      }
+
+      // Withdrawn filter (same resolved MembershipStatus, evaluated the same way)
+      if (isWithdrawn(output.MembershipStatus)) {
+        state.diagnostics.withdrawnRemoved++;
         continue;
       }
 
@@ -1133,7 +1079,7 @@
   function resetDiagnostics(){
     state.diagnostics = {
       matchedById: 0, matchedByNric: 0, unmatched: 0, updated: 0,
-      terminatedRemoved: 0, dobMissingOrInvalid: 0, duplicateMembershipIds: state.diagnostics.duplicateMembershipIds,
+      terminatedRemoved: 0, withdrawnRemoved: 0, dobMissingOrInvalid: 0, duplicateMembershipIds: state.diagnostics.duplicateMembershipIds,
       resolvedWithoutOneMap: 0,
       uniquePostalCodes: 0, cacheHitsSaved: 0, oneMapCallsMade: 0, lookupFailuresByReason: {},
       duplicateActivityNrics: [], activityMatched: 0, activityUnmatched: 0
@@ -1147,9 +1093,12 @@
   }
 
   function buildOutputBlobs(){
-    // Main file as Excel (.xlsx)
-    state.finalExcelBlob = excelBlobFromRows(state.outputRows, OUTPUT_COLUMNS);
-    // Failed lookup file as CSV (stays as CSV per requirements)
+    const rows = state.outputRows.map(r => {
+      const ordered = {};
+      OUTPUT_COLUMNS.forEach(c => ordered[c] = r[c] !== undefined ? r[c] : "");
+      return ordered;
+    });
+    state.finalCsvBlob = csvBlobFromRows(rows);
     state.failedCsvBlob = state.failedLookupRows.length
       ? csvBlobFromRows(state.failedLookupRows)
       : null;
@@ -1175,6 +1124,7 @@
       statCard(d.unmatched, "No Member Details match") +
       statCard(d.updated, "Records updated") +
       statCard(d.terminatedRemoved, "Removed as Terminated") +
+      statCard(d.withdrawnRemoved, "Removed as Withdrawn") +
       statCard(d.dobMissingOrInvalid, "Missing/unparseable DOB") +
       statCard(d.resolvedWithoutOneMap, "Addresses resolved without OneMap") +
       statCard(d.uniquePostalCodes, "Unique valid postal codes still needing lookup") +
@@ -1231,7 +1181,7 @@
    * ------------------------------------------------------------------- */
 
   document.getElementById("btn-download-main").addEventListener("click", () => {
-    downloadBlob(state.finalExcelBlob, "Final_Merged_Members.xlsx");
+    downloadBlob(state.finalCsvBlob, "Final_Merged_Members.csv");
   });
   document.getElementById("btn-download-failed").addEventListener("click", () => {
     if (state.failedCsvBlob) downloadBlob(state.failedCsvBlob, "Failed_Address_Lookup.csv");

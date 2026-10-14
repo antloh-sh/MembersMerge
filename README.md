@@ -1,59 +1,71 @@
-# AAC Membership Merge Tool — README
+# AAC Membership Merge Tool
 
-## Overview
+A single-file, client-side web app (`index.html`) that merges the AAC Membership and Member Details exports into one cleaned roster. Everything runs in the browser, so no member data is uploaded anywhere. The only outbound call is a postal code sent to OneMap, and only as a last-resort fallback.
 
-The **AAC Membership Merge Tool** is a client-side browser utility designed to merge Active Ageing Centre (AAC) **Membership** and **Member Details** CSV exports. It drops terminated members, computes member ages, handles split/tagged phone numbers, resolves street and building names using OneMap, and integrates activity attendance counts.
+## What it does
 
----
+1. Merges `DataListing-AACMembership.csv` (master roster) with `DataListing-AACMemberDetails.csv` (refresh source).
+2. Removes members whose resolved status is **Terminated** or **Withdrawn**.
+3. Calculates **Age** from date of birth.
+4. Resolves street and building name (see [Address resolution](#address-resolution)).
+5. Splits phone numbers into Home and Mobile using the `(H)` / `(M)` tags.
+6. Adds **HouseholdID** and **ActivityCount**.
+7. Produces `Final_Merged_Members.csv`, plus `Failed_Address_Lookup.csv` if any OneMap fallback lookup fails.
 
-## Input Files & Reference Headers
+## Deploying to GitHub Pages (free tier)
 
-The tool accepts three CSV files (two required, one optional):
+1. Put `index.html` in the root of a repository.
+2. In the repository, go to **Settings → Pages**.
+3. Set **Source** to "Deploy from a branch", choose your branch and `/ (root)`, then save.
+4. Open `https://<username>.github.io/<repo-name>/`.
 
-### 1. Membership CSV (`DataListing-AACMembership.csv`) — *Required*
+There is no build step. Edit `index.html`, push, and Pages redeploys. Open the tool from the Pages URL, not by double-clicking the file.
 
-Primary roster export containing core member records and employment details.
+## Using the tool
 
-```csv
-Centre1, MembershipId, MembershipStatus, DocumentType, NRIC, Salutation, Surname, FullName, ToAddressAs, NativeName, DOB, Gender, MaritalStatus, BloodGroup, Citizenship, Race, Religion, HomePhone, MobilePhone, OtherPhone, PersonAddressPostalCode, PersonAddressBlockNo, PersonAddressStoreyUnit, PersonAddressStreetName, PersonAddressBuildingName, PersonAddressCountry, ResidesWithinServiceBoundary, PersonAddressTypeOfAccommodation, Address_Ownership, LivingArrangement, OthersLivingArrangement, Language, HighestEducation, CurrentEmploymentStatus, OtherEmploymentStatus, Hobbies, Mobility, LevelOfCares, FinancialStatus, OtherFinancialStatus, NoOfSons, NoOfDaughters, PhysicalHealths, PhysicalHealthOthers, MentalHealths, MentalHealthOthers, SocioEmotional, SocioEmotionalOthers, FollowUps, OtherFollowUps, HealthRemarks, NoNextOfKin, Row_Number, NOKSalutation, NOKFullName, NOKSurname, NOKDocumentType, NOKNRIC, Relationship, TypeOfEmergencyContactPerson, NOKHomePhone, NOKMobilePhone, NOKOtherPhone, NOKPostalCode, NOKBlockNo, NOKStoreyUnitNo, NOKStreetName, NOKBulidingName, NOKCountry, RecordedBy, RegistrationDate, JoinedDate, TerminatedDate, TerminatedBy, TerminationReason, WithdrawnDate, WithdrawnBy, WithdrawnReason, RFID, Remarks, Responder, SelectNOK, DeclarationDate, CreatedOn, CreatedBy, ModifiedOn, ModifiedBy
+| Step | Action |
+|---|---|
+| 1. Upload | Membership CSV and Member Details CSV (required); Activities CSV (optional) |
+| 2. Validate | Checks required columns, flags duplicate `MembershipId` values |
+| 3. Merge & Enrich | Progress bars for the merge and for any OneMap lookups |
+| 4. Summary | Counts, advisories, and flagged data issues |
+| 5. Download | `Final_Merged_Members.csv` and, if needed, `Failed_Address_Lookup.csv` |
 
-```
+## Input files and their headers
 
-* **Key required headers for merge:** `MembershipId`, `MembershipStatus`, `NRIC`
+Reference headers as exported. The tool reads columns by name, so a missing required column stops the run at Step 2.
 
----
+### 1. `DataListing-AACMembership.csv` (required, master roster)
 
-### 2. Member Details CSV (`DataListing-AACMemberDetails.csv`) — *Required*
-
-Enrichment file used to update demographic, address, and contact fields.
-
-```csv
-Centre, MembershipId, CurrentMembershipStatus, JoinedDate, TerminatedDate, RegistrationDocumentType, RegistrationDocumentNumber, Salutation, FullNameNative, ToAddressAs, DateOfBirth, Age, Gender, MaritalStatus, Citizenship, Race, Religion, Phone, ResidesWithinServiceBoundaryStr, NricAddress_PostalCode, NricAddress_BlockNo, NricAddress_UnitNo, FullAddress, NricAddress_Ownership, SpokenLanguage, Mobility, LevelOfCare, IsFaceRegistered, RFID, Hobbies, Remarks, NextOfKin, AssignedStaffs, AssignedVolunteers, LastActivity, LastActivityAttendedOn, BnBType, IRConcatenatedString, InteractionContactDate, InteractionStatus, DeclinedCSStr, AssessmentDate, AUAScore, NextReviewDate, InterRAICSAssessmentDate, InterRAICSSCALES, InterRAICSCAPS, InterRAICSNextReviewDate
-
-```
-
-* **Key required headers for merge:** `MembershipId`, `CurrentMembershipStatus`, `RegistrationDocumentNumber`
-
----
-
-### 3. Member Activities CSV (`Supabase Snippet Members Activities Count.csv`) — *Optional*
-
-SQL export containing activity counts matched by member NRIC. If omitted, `ActivityCount` defaults to `0` for all rows.
-
-```csv
-member_registrationdocumentnumber, member_name, cfs_score, activities_attended_count
+Required columns: `MembershipId`, `MembershipStatus`, `NRIC`.
 
 ```
+Centre1,MembershipId,MembershipStatus,DocumentType,NRIC,Salutation,Surname,FullName,ToAddressAs,NativeName,DOB,Gender,MaritalStatus,BloodGroup,Citizenship,Race,Religion,HomePhone,MobilePhone,OtherPhone,PersonAddressPostalCode,PersonAddressBlockNo,PersonAddressStoreyUnit,PersonAddressStreetName,PersonAddressBuildingName,PersonAddressCountry,ResidesWithinServiceBoundary,PersonAddressTypeOfAccommodation,Address_Ownership,LivingArrangement,OthersLivingArrangement,Language,HighestEducation,CurrentEmploymentStatus,OtherEmploymentStatus,Hobbies,Mobility,LevelOfCares,FinancialStatus,OtherFinancialStatus,NoOfSons,NoOfDaughters,PhysicalHealths,PhysicalHealthOthers,MentalHealths,MentalHealthOthers,SocioEmotional,SocioEmotionalOthers,FollowUps,OtherFollowUps,HealthRemarks,NoNextOfKin,Row_Number,NOKSalutation,NOKFullName,NOKSurname,NOKDocumentType,NOKNRIC,Relationship,TypeOfEmergencyContactPerson,NOKHomePhone,NOKMobilePhone,NOKOtherPhone,NOKPostalCode,NOKBlockNo,NOKStoreyUnitNo,NOKStreetName,NOKBulidingName,NOKCountry,RecordedBy,RegistrationDate,JoinedDate,TerminatedDate,TerminatedBy,TerminationReason,WithdrawnDate,WithdrawnBy,WithdrawnReason,RFID,Remarks,Responder,SelectNOK,DeclarationDate,CreatedOn,CreatedBy,ModifiedOn,ModifiedBy
+```
 
-* **Key required headers for merge:** `member_registrationdocumentnumber`, `activities_attended_count`
+### 2. `DataListing-AACMemberDetails.csv` (required, refresh source)
 
----
+Required columns: `MembershipId`, `CurrentMembershipStatus`, `RegistrationDocumentNumber`.
 
-## SQL Query for Member Activities CSV (Supabase)
+```
+Centre,MembershipId,CurrentMembershipStatus,JoinedDate,TerminatedDate,RegistrationDocumentType,RegistrationDocumentNumber,Salutation,FullNameNative,ToAddressAs,DateOfBirth,Age,Gender,MaritalStatus,Citizenship,Race,Religion,Phone,ResidesWithinServiceBoundaryStr,NricAddress_PostalCode,NricAddress_BlockNo,NricAddress_UnitNo,FullAddress,NricAddress_Ownership,SpokenLanguage,Mobility,LevelOfCare,IsFaceRegistered,RFID,Hobbies,Remarks,AssignedStaffs,AssignedVolunteers,LastActivity,LastActivityAttendedOn,BnBType,IRConcatenatedString,DeclinedCSStr,AssessmentDate,AUAScore,NextReviewDate,InterRAICSAssessmentDate,InterRAICSSCALES,InterRAICSCAPS,InterRAICSNextReviewDate
+```
 
-To generate the **Member Activities CSV**, execute the following SQL query in your **Supabase Membership Database**.
+### 3. Activities CSV (optional, generated from Supabase)
 
-> ⚠️ **Note:** Adjust the start date (`2026-04-01`) and end date (`2026-07-01`) to match your reporting quarter/period.
+Required columns: `member_registrationdocumentnumber`, `activities_attended_count`.
+
+```
+member_registrationdocumentnumber,member_name,cfs_score,activities_attended_count
+```
+
+See [Generating the Activities CSV](#generating-the-activities-csv).
+
+## Generating the Activities CSV
+
+Run this in the **Supabase SQL Editor** for the membership database, then export the result as CSV and upload it in Step 1.
+
+**Before running, adjust the two dates** in the `left join` to the reporting period you want to count activities for. The start date is inclusive and the end date is exclusive, so for a full quarter use the first day of the next quarter as the end date.
 
 ```sql
 select
@@ -64,64 +76,99 @@ select
 from public."aac_member_details" m
 left join public."activities" a
   on a."registrationdocumentnumber" = m."registrationdocumentnumber"
-  and a."activitydatedisplay" >= date '2026-04-01'
-  and a."activitydatedisplay" < date '2026-07-01'
+  and a."activitydatedisplay" >= date '2026-04-01'   -- period start (inclusive)
+  and a."activitydatedisplay" < date '2026-07-01'    -- period end (exclusive)
 where m."resideswithinserviceboundarystr" = true
   and m."dateofbirth" is not null
   and extract(year from age(current_date, m."dateofbirth")) >= 60
 group by m."registrationdocumentnumber", m."fullnamenative"
 order by "activities_attended_count" desc, "member_registrationdocumentnumber" asc;
-
 ```
 
-Export the query output directly as CSV and upload it to Step 1 of the tool.
+Example periods:
 
----
+| Period | Start (inclusive) | End (exclusive) |
+|---|---|---|
+| Q2 2026 (the dates above) | `2026-04-01` | `2026-07-01` |
+| Q3 2026 | `2026-07-01` | `2026-10-01` |
+| Q4 2026 | `2026-10-01` | `2027-01-01` |
 
-## Output Specifications
+Notes on this query:
 
-### Generated Output Files
+- It only returns members who live within the service boundary, have a date of birth, and are aged 60 or over. Anyone outside that group won't appear in the file and gets an `ActivityCount` of `0`.
+- The left join means in-scope members with no activities in the period are returned with a count of `0`.
+- The age filter uses `current_date`, so it reflects the day you run it, not the end of the reporting period.
 
-1. **`Final_Merged_Members.csv`**: Main enriched roster ready for operational use.
-2. **`Failed_Address_Lookup.csv`**: Generated only if one or more postal codes could not be resolved via OneMap.
+## Output: `Final_Merged_Members.csv`
 
-### Final Output Column Structure (27 Columns)
+Columns, in order:
 
-| Column Name | Source / Rule |
-| --- | --- |
-| `MembershipStatus` | Overwritten by `MemberDetails.CurrentMembershipStatus` if present |
-| `JoinedDate` | From `MemberDetails.JoinedDate` |
-| `NRIC` | Overwritten by `MemberDetails.RegistrationDocumentNumber` if present |
-| `FullName` | Overwritten by `MemberDetails.FullNameNative` if present |
-| `ToAddressAs` | Overwritten by `MemberDetails.ToAddressAs` if present |
-| `DOB` | Overwritten by `MemberDetails.DateOfBirth` if present |
-| `Age` | Calculated dynamically from resolved DOB |
-| `Gender` | Overwritten by `MemberDetails.Gender` if present |
-| `MaritalStatus` | Overwritten by `MemberDetails.MaritalStatus` if present |
-| `Citizenship` | Overwritten by `MemberDetails.Citizenship` if present |
-| `Race` | Overwritten by `MemberDetails.Race` if present |
-| `Religion` | Overwritten by `MemberDetails.Religion` if present |
-| `HomePhone` | Parsed from `MemberDetails.Phone` `(H)` tag; falls back to Membership `HomePhone` |
-| `MobilePhone` | Parsed from `MemberDetails.Phone` `(M)` tag; falls back to Membership `MobilePhone` |
-| `ResidesWithinServiceBoundary` | Overwritten by `MemberDetails.ResidesWithinServiceBoundaryStr` if present |
-| `PersonAddressPostalCode` | Overwritten by `MemberDetails.NricAddress_PostalCode` if present |
-| `PersonAddressBlockNo` | Overwritten by `MemberDetails.NricAddress_BlockNo` if present |
-| `PersonAddressStoreyUnit` | Overwritten by `MemberDetails.NricAddress_UnitNo` if present |
-| `PersonAddressStreetName` | Parsed from `FullAddress` or resolved via OneMap API |
-| `PersonAddressBuildingName` | Parsed from `FullAddress` or resolved via OneMap API |
-| `PersonAddressCountry` | Set to `"Singapore"` upon valid address match |
-| `Language` | Overwritten by `MemberDetails.SpokenLanguage` if present |
-| `CurrentEmploymentStatus` | From `Membership.CurrentEmploymentStatus` |
-| `Hobbies` | Overwritten by `MemberDetails.Hobbies` if present |
-| `Remarks` | From `MemberDetails.Remarks` |
-| `HouseholdID` | Formatted as `{PostalCode}_{BlockNo}_{StoreyUnit}` (`LANDED` if unit is blank) |
-| `ActivityCount` | Matched via NRIC from Activities CSV (`0` if unmatched or skipped) |
+```
+MembershipStatus,JoinedDate,NRIC,FullName,ToAddressAs,DOB,Age,Gender,MaritalStatus,Citizenship,Race,Religion,HomePhone,MobilePhone,ResidesWithinServiceBoundary,PersonAddressPostalCode,PersonAddressBlockNo,PersonAddressStoreyUnit,PersonAddressStreetName,PersonAddressBuildingName,PersonAddressCountry,Language,CurrentEmploymentStatus,Hobbies,Remarks,HouseholdID,ActivityCount
+```
 
----
+`MembershipId` is used internally for matching but is not written to the output.
 
-## Key Processing Rules
+## Merge rules
 
-1. **Record Matching:** Records are primary-matched on `MembershipId`. Unmatched rows fall back to NRIC matching.
-2. **Terminated Filter:** Any record with a resolved status of `Terminated` is automatically removed from the final export.
-3. **Address Resolution & OneMap Fallback:** The tool first parses `FullAddress` from Member Details. If street info is missing, it calls OneMap's API using the 6-digit postal code (rate-limited at 200 calls/min to prevent throttling).
-4. **Privacy:** Runs entirely client-side in the browser. No personal data is sent to external servers.
+**Matching.** Each Membership row is matched to a Member Details row by `MembershipId`. If that fails, it falls back to NRIC (`NRIC` ↔ `RegistrationDocumentNumber`, normalised). Member Details rows with no Membership match are ignored. Membership defines the row set.
+
+**Overwrite rule.** For fields present on both sides, a non-blank Member Details value overwrites the Membership value. A blank one keeps the Membership value. Blank means empty, whitespace, or `NA` / `N/A` / `null` / `nil` / `-`.
+
+**Field mapping (Membership ← Member Details):**
+
+| Output column | Membership column | Member Details column |
+|---|---|---|
+| MembershipStatus | MembershipStatus | CurrentMembershipStatus |
+| NRIC | NRIC | RegistrationDocumentNumber |
+| FullName | FullName | FullNameNative |
+| ToAddressAs | ToAddressAs | ToAddressAs |
+| DOB | DOB | DateOfBirth |
+| Gender, MaritalStatus, Citizenship, Race, Religion, Hobbies | same name | same name |
+| ResidesWithinServiceBoundary | ResidesWithinServiceBoundary | ResidesWithinServiceBoundaryStr |
+| PersonAddressPostalCode | PersonAddressPostalCode | NricAddress_PostalCode |
+| PersonAddressBlockNo | PersonAddressBlockNo | NricAddress_BlockNo |
+| PersonAddressStoreyUnit | PersonAddressStoreyUnit | NricAddress_UnitNo |
+| Language | Language | SpokenLanguage |
+| MobilePhone, CurrentEmploymentStatus | same name | (none) |
+| JoinedDate, Remarks | (none) | same name |
+
+**Status filter.** After the overwrite rule is applied, members whose `MembershipStatus` is **Terminated** or **Withdrawn** (case-insensitive) are removed. Other statuses such as `Joined` and `Pending` pass through. The summary reports the two removal counts separately.
+
+**Age.** Current year minus birth year, as a whole number. Missing or unparseable dates of birth leave Age blank, and the row is kept. This is a year-only calculation, so it can be one year high for members whose birthday hasn't happened yet this year.
+
+### Phone numbers
+
+Member Details' `Phone` field carries `(H)` / `(M)` tags (for example `(M) 94769266`). The tool splits each value and routes it to `HomePhone` or `MobilePhone` based on its tag, with the tag removed. Membership's own `HomePhone` and `MobilePhone` values are the fallback when Member Details doesn't supply that tag, and a Member Details value wins when both exist.
+
+### Address resolution
+
+Street name and building name are resolved in this order:
+
+1. Parsed from Member Details' `FullAddress` (block and unit are stripped using `NricAddress_BlockNo` and `NricAddress_UnitNo`).
+2. Membership's own `PersonAddressStreetName` / `PersonAddressBuildingName`.
+3. OneMap Search API, only for rows still missing a street name after steps 1 and 2.
+
+`PersonAddressCountry` is taken from Membership. OneMap lookups are cached per postal code, paced to stay under OneMap's rate limit, and retried on HTTP 429. Failures go to `Failed_Address_Lookup.csv` with a `FailureReason` and `Detail`.
+
+### HouseholdID
+
+```
+PersonAddressPostalCode _ PersonAddressBlockNo _ PersonAddressStoreyUnit
+```
+
+For example `360004_4_08-10`. If the storey/unit is blank (landed property), `LANDED` is used, for example `348126_24_LANDED`.
+
+### ActivityCount
+
+Matched on NRIC against `member_registrationdocumentnumber` in the Activities CSV. No match, or no Activities CSV uploaded, gives `0`. If the same NRIC appears more than once in the Activities CSV, the first row is used and the NRIC is listed as a data issue in the summary.
+
+## Known data-quality points
+
+- **Bad source values pass through.** The tool doesn't correct wrong entries in the source exports (for example a postal code typed into `ToAddressAs`). Fix those at the source.
+- **Duplicate IDs.** Duplicate `MembershipId` values in either file are flagged at validation. The first occurrence is used.
+- **`ActivityCount = 0` is ambiguous.** It can mean attended nothing in the period, or not in the Activities CSV at all (for example outside the service boundary or under 60).
+
+## Not included
+
+No backend, database, or saved state between runs. Each run starts fresh from whatever files you upload.
