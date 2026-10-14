@@ -10,7 +10,7 @@ A single-file, client-side web app (`index.html`) that merges the AAC Membership
 4. Resolves street and building name (see [Address resolution](#address-resolution)).
 5. Splits phone numbers into Home and Mobile using the `(H)` / `(M)` tags.
 6. Adds **HouseholdID** and **ActivityCount**.
-7. Produces `Final_Merged_Members.csv`, plus `Failed_Address_Lookup.csv` if any OneMap fallback lookup fails.
+7. Produces `Final_Merged_Members.xlsx`, plus `Failed_Address_Lookup.xlsx` if any OneMap fallback lookup fails.
 
 ## Deploying to GitHub Pages (free tier)
 
@@ -29,7 +29,7 @@ There is no build step. Edit `index.html`, push, and Pages redeploys. Open the t
 | 2. Validate | Checks required columns, flags duplicate `MembershipId` values |
 | 3. Merge & Enrich | Progress bars for the merge and for any OneMap lookups |
 | 4. Summary | Counts, advisories, and flagged data issues |
-| 5. Download | `Final_Merged_Members.csv` and, if needed, `Failed_Address_Lookup.csv` |
+| 5. Download | `Final_Merged_Members.xlsx` and, if needed, `Failed_Address_Lookup.xlsx` |
 
 ## Input files and their headers
 
@@ -99,7 +99,9 @@ Notes on this query:
 - The left join means in-scope members with no activities in the period are returned with a count of `0`.
 - The age filter uses `current_date`, so it reflects the day you run it, not the end of the reporting period.
 
-## Output: `Final_Merged_Members.csv`
+## Output: `Final_Merged_Members.xlsx`
+
+An Excel workbook with one sheet, `Members`, with auto-sized columns and a filter on the header row. `Age` and `ActivityCount` are written as numbers. Everything else is written as text, so postal codes, phone numbers, NRICs and dates are never reformatted by Excel. `Failed_Address_Lookup.xlsx` (sheet `Failed Lookups`) is only produced when a fallback lookup fails.
 
 Columns, in order:
 
@@ -149,7 +151,7 @@ Street name and building name are resolved in this order:
 2. Membership's own `PersonAddressStreetName` / `PersonAddressBuildingName`.
 3. OneMap Search API, only for rows still missing a street name after steps 1 and 2.
 
-`PersonAddressCountry` is taken from Membership. OneMap lookups are cached per postal code, paced to stay under OneMap's rate limit, and retried on HTTP 429. Failures go to `Failed_Address_Lookup.csv` with a `FailureReason` and `Detail`.
+`PersonAddressCountry` is taken from Membership. OneMap lookups are cached per postal code, paced to stay under OneMap's rate limit, and retried on HTTP 429. Failures go to `Failed_Address_Lookup.xlsx` with a `FailureReason` and `Detail`.
 
 ### HouseholdID
 

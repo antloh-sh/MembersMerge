@@ -7,6 +7,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.1/papaparse.min.js"
   integrity="sha512-EbdJQSugx0nVWrtyK3JdQQ/03mS3Q1UiAhRtErbwl1YL/+e2hZdlIcSURxxh7WXHTzn83sjlh2rysACoJGfb6g=="
   crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"
+  integrity="sha512-r22gChDnGvBylk90+2e/ycr3RVrDi8DIOkIGNhJlKfuyQM4tIRAI062MaV8sfjQKYVGjOBaZBOA87z+IhZE9DA=="
+  crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <style>
   :root{
     --ink:#1c2b2e;
@@ -249,8 +252,8 @@
     <p>Your merged roster is ready. The failed-lookup file only appears if at least one address
        could not be resolved.</p>
     <div class="download-row">
-      <button id="btn-download-main">Download Final_Merged_Members.csv</button>
-      <button class="ghost" id="btn-download-failed" style="display:none;">Download Failed_Address_Lookup.csv</button>
+      <button id="btn-download-main">Download Final_Merged_Members.xlsx</button>
+      <button class="ghost" id="btn-download-failed" style="display:none;">Download Failed_Address_Lookup.xlsx</button>
     </div>
     <div class="actions">
       <button class="secondary" id="btn-start-over">Start over</button>
@@ -511,9 +514,41 @@
     setTimeout(() => URL.revokeObjectURL(url), 4000);
   }
 
-  function csvBlobFromRows(rows){
-    const csv = Papa.unparse(rows);
-    return new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  // Columns written as real Excel numbers; everything else stays text so postal codes,
+  // phone numbers, NRICs and dates are never reformatted by Excel.
+  const NUMERIC_OUTPUT_COLUMNS = new Set(["Age", "ActivityCount"]);
+
+  function xlsxBlobFromRows(rows, columns, sheetName){
+    const prepared = rows.map(r => {
+      const o = {};
+      columns.forEach(c => {
+        const v = r[c] === undefined || r[c] === null ? "" : r[c];
+        if (NUMERIC_OUTPUT_COLUMNS.has(c) && String(v).trim() !== "" && !isNaN(Number(v))) {
+          o[c] = Number(v);
+        } else {
+          o[c] = String(v);
+        }
+      });
+      return o;
+    });
+    const ws = XLSX.utils.json_to_sheet(prepared, { header: columns });
+    ws["!cols"] = columns.map(c => {
+      let max = c.length;
+      for (let i = 0; i < prepared.length && i < 500; i++) {
+        const len = String(prepared[i][c]).length;
+        if (len > max) max = len;
+      }
+      return { wch: Math.min(Math.max(max + 2, 8), 45) };
+    });
+    ws["!autofilter"] = { ref: XLSX.utils.encode_range({
+      s: { r: 0, c: 0 }, e: { r: Math.max(prepared.length, 1), c: columns.length - 1 }
+    }) };
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    const out = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+    return new Blob([out], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    });
   }
 
   /* ---------------------------------------------------------------------
@@ -1098,9 +1133,10 @@
       OUTPUT_COLUMNS.forEach(c => ordered[c] = r[c] !== undefined ? r[c] : "");
       return ordered;
     });
-    state.finalCsvBlob = csvBlobFromRows(rows);
+    state.finalCsvBlob = xlsxBlobFromRows(rows, OUTPUT_COLUMNS, "Members");
     state.failedCsvBlob = state.failedLookupRows.length
-      ? csvBlobFromRows(state.failedLookupRows)
+      ? xlsxBlobFromRows(state.failedLookupRows,
+          ["MembershipId", "NRIC", "PostalCode", "FailureReason", "Detail"], "Failed Lookups")
       : null;
   }
 
@@ -1181,10 +1217,10 @@
    * ------------------------------------------------------------------- */
 
   document.getElementById("btn-download-main").addEventListener("click", () => {
-    downloadBlob(state.finalCsvBlob, "Final_Merged_Members.csv");
+    downloadBlob(state.finalCsvBlob, "Final_Merged_Members.xlsx");
   });
   document.getElementById("btn-download-failed").addEventListener("click", () => {
-    if (state.failedCsvBlob) downloadBlob(state.failedCsvBlob, "Failed_Address_Lookup.csv");
+    if (state.failedCsvBlob) downloadBlob(state.failedCsvBlob, "Failed_Address_Lookup.xlsx");
   });
   document.getElementById("btn-start-over").addEventListener("click", () => {
     location.reload();
