@@ -87,6 +87,14 @@
     transition:border-color .15s ease, background .15s ease;
   }
   .dropzone:hover, .dropzone.drag{border-color:var(--accent);background:#f1f6f3;}
+  /* Once a file has been parsed: solid border, green background (stays green on hover/drag) */
+  .dropzone.loaded,
+  .dropzone.loaded:hover,
+  .dropzone.loaded.drag{
+    border-style:solid;
+    border-color:var(--accent);
+    background:#d6ecdc;
+  }
   .dropzone input{display:none;}
   .dropzone .label{font-weight:600;font-size:.92rem;margin-bottom:4px;}
   .dropzone .hint{color:var(--muted);font-size:.82rem;}
@@ -589,6 +597,7 @@
     });
 
     function handleFile(file){
+      dz.classList.remove("loaded");
       document.getElementById(fnId).textContent = file.name;
       document.getElementById(rcId).textContent = "Parsing…";
       Papa.parse(file, {
@@ -596,9 +605,11 @@
         skipEmptyLines: true,
         complete: function(results){
           document.getElementById(rcId).textContent = results.data.length.toLocaleString() + " rows";
+          dz.classList.add("loaded");
           onParsed(results.data, results.meta.fields || [], file.name);
         },
         error: function(err){
+          dz.classList.remove("loaded");
           document.getElementById(rcId).textContent = "Could not parse this file.";
           console.error(err);
         }
